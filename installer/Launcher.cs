@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -156,6 +157,13 @@ internal sealed class LauncherForm : Form {
         if (result.ContainsKey("error")) throw new InvalidOperationException(Convert.ToString(result["error"]));
         return result;
     }
+    private void ApplyDetectedTargets(Dictionary<string, object> detected) {
+        var targets = detected["targets"] as IList;
+        if (targets == null) throw new InvalidOperationException("The setup worker returned an invalid Discord folder list.");
+        target.Items.Clear();
+        foreach (var item in targets) target.Items.Add(Convert.ToString(item));
+        if (target.Items.Count > 0) target.SelectedIndex = 0;
+    }
 
     private async Task InstallLatest() {
         SetBusy(true);
@@ -193,12 +201,11 @@ internal sealed class LauncherForm : Form {
                     }
                 }
                 var detected = await Inspect("detect", null, null);
-                var targets = detected["targets"] as object[];
-                target.Items.Clear();
-                if (targets != null) foreach (var item in targets) target.Items.Add(Convert.ToString(item));
-                if (target.Items.Count > 0) target.SelectedIndex = 0;
+                ApplyDetectedTargets(detected);
                 ShowSetup(true);
-                status.Text = L("Verified release " + Convert.ToString(result["tag"]) + ". Review the detected installation.", "Versão " + Convert.ToString(result["tag"]) + " verificada. Revise a instalação detectada.");
+                status.Text = target.Items.Count > 0
+                    ? L("Verified release " + Convert.ToString(result["tag"]) + ". Review the detected installation.", "Versão " + Convert.ToString(result["tag"]) + " verificada. Revise a instalação detectada.")
+                    : L("No Discord resources folder was detected. Choose the folder before reviewing.", "Nenhuma pasta de recursos do Discord foi detectada. Escolha a pasta antes de revisar.");
             } finally { if (File.Exists(resultFile)) File.Delete(resultFile); }
         } catch (Exception error) {
             if (updateWork != null) { try { CleanupUpdate(updateWork); } catch { } updateWork = null; }

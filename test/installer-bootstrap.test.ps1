@@ -15,6 +15,17 @@ $form=[Activator]::CreateInstance($assembly.GetType('LauncherForm'),$true)
 try {
     $captions=@($form.Controls | ForEach-Object { $_.Text }) -join '|'
     Assert ($captions -match 'Revisar / Instalar|Review / Install' -and $captions -match 'Restaurar instalação anterior|Restore previous installation') 'The EXE has no install and restore controls.'
+    New-Item -ItemType Directory -Path (Join-Path $root '.preview') -Force | Out-Null
+    $shapeFile=Join-Path $root '.preview\detected-target-shape.json'
+    '{"targets":["C:\\Users\\test\\AppData\\Local\\Discord\\app-1.0.0\\resources"]}' | Set-Content -LiteralPath $shapeFile -Encoding UTF8
+    $flags=[Reflection.BindingFlags]'Instance,NonPublic'
+    $invokeArgs=New-Object 'object[]' 1
+    $invokeArgs[0]=[string]$shapeFile
+    $decoded=$form.GetType().GetMethod('ReadResponse',$flags).Invoke($form,$invokeArgs)
+    $invokeArgs[0]=$decoded
+    $form.GetType().GetMethod('ApplyDetectedTargets',$flags).Invoke($form,$invokeArgs) | Out-Null
+    $targetControl=$form.GetType().GetField('target',$flags).GetValue($form)
+    Assert ($targetControl.Items.Count -eq 1 -and $targetControl.Text.EndsWith('Discord\app-1.0.0\resources')) 'A detected Discord folder did not appear in the EXE dropdown.'
 } finally { $form.Dispose() }
 $digest='sha256:'+((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant())
 Assert-Hash $zip $digest
@@ -54,7 +65,15 @@ Assert ((Test-Path -LiteralPath (Join-Path $downloaded.package 'Setup.ps1')) -an
 $inspectJob=Join-Path $scratch 'inspect'
 New-Item -ItemType Directory -Path $inspectJob -Force|Out-Null
 '{"action":"detect"}'|Set-Content -LiteralPath (Join-Path $inspectJob 'request.json') -Encoding UTF8
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $downloaded.package 'Setup.ps1') -Inspect -JobDirectory $inspectJob -Language pt-BR
+$fakeLocal=Join-Path $scratch 'Local AppData'
+$fakeResources=Join-Path $fakeLocal 'Discord\app-1.2.3\resources'
+New-Item -ItemType Directory -Path $fakeResources -Force|Out-Null
+$savedLocal=$env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA=$fakeLocal
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $downloaded.package 'Setup.ps1') -Inspect -JobDirectory $inspectJob -Language pt-BR
+} finally { $env:LOCALAPPDATA=$savedLocal }
 Assert ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath (Join-Path $inspectJob 'response.json'))) 'Background setup inspection failed.'
-Assert ((Get-Content -LiteralPath (Join-Path $inspectJob 'response.json') -Raw | ConvertFrom-Json).PSObject.Properties.Name -contains 'targets') 'The EXE did not receive detected Discord targets.'
-Write-Output 'PASS: release metadata, SHA-256 checks, package inventory, traversal refusal, retained download, and background inspection.'
+$detectedResponse=Get-Content -LiteralPath (Join-Path $inspectJob 'response.json') -Raw | ConvertFrom-Json
+Assert ($detectedResponse.targets.Count -eq 1 -and $detectedResponse.targets[0] -eq $fakeResources) 'The background detector missed a standard Discord resources folder.'
+Write-Output 'PASS: release metadata, SHA-256 checks, package inventory, traversal refusal, retained download, detection, and EXE dropdown binding.'
