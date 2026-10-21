@@ -2,8 +2,7 @@ REACTION LIBRARY - SAFER VENCORD SETUP (PREVIEW)
 
 1. Fully exit Discord, including its tray icon. Vencord must already be installed.
 2. Run ReactionLibrary-Setup.exe and choose English. It downloads and verifies
-   the latest public GitHub release, then opens its setup review. Alternatively,
-   extract the whole ZIP and double-click Install.cmd for the same flow.
+   the latest public GitHub release, then opens its setup review.
 3. Check the detected Discord resources folder. Select a different one if needed.
 4. If custom plugins are detected, select the matching Vencord source checkout
    if setup cannot find it automatically.
@@ -44,7 +43,7 @@ from your active installation. Rollback snapshots are retained.
 
 RESTORE
 
-Close Discord, run Install.cmd, and click Restore previous installation.
+Close Discord, run ReactionLibrary-Setup.exe, and click Restore previous installation.
 The review dialog identifies the previous snapshot. Restore verifies its hashes,
 then restores the saved build, settings, and themes. Settings/themes changed since
 installation are first preserved in a separate rescued folder. Discord's loader

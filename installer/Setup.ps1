@@ -88,7 +88,7 @@ function Prepare-Tools($Manifest) {
         Download-Verified $Manifest.pnpm.url $pnpmArchive $Manifest.pnpm.sha512 'SHA512'
         # Unpack the verified local package with scripts disabled.
         $env:PATH = "$nodeRoot;$(Join-Path $gitRoot 'cmd');$env:PATH"
-        Run (Join-Path $nodeRoot 'npm.cmd') @('install','--prefix',$pnpmRoot,'--offline','--ignore-scripts','--no-audit','--no-fund',$pnpmArchive) $Work
+        Run $node @((Join-Path $nodeRoot 'node_modules\npm\bin\npm-cli.js'),'install','--prefix',$pnpmRoot,'--offline','--ignore-scripts','--no-audit','--no-fund',$pnpmArchive) $Work
         Save-Json $receipt @{ key=$key; hashes=(Tree-Hashes $files) }
     }
     $env:PATH = "$nodeRoot;$(Join-Path $gitRoot 'cmd');$env:PATH"

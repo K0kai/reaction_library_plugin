@@ -12,7 +12,7 @@ $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'The Windows .NET Framework C# compiler is required to package the launcher.' }
 & $compiler /nologo /target:winexe /platform:x64 "/out:$launcher" "/resource:$(Join-Path $root 'installer\Bootstrap.ps1'),ReactionLibrary.Bootstrap.ps1" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll (Join-Path $root 'installer\Launcher.cs')
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $launcher)) { throw 'The Windows launcher could not be built.' }
-foreach ($file in @('Install.cmd','Instalar-pt-BR.cmd','Bootstrap.ps1','Setup.ps1','Safety.ps1','toolchain.json','README.txt','README.pt-BR.txt')) {
+foreach ($file in @('Bootstrap.ps1','Setup.ps1','Safety.ps1','toolchain.json','README.txt','README.pt-BR.txt')) {
     Copy-Item -LiteralPath (Join-Path $root "installer\$file") -Destination $package
 }
 Copy-Item -LiteralPath (Join-Path $root 'vencord\reactionLibrary') -Destination $package -Recurse

@@ -17,6 +17,7 @@ New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $package=Expand-CheckedPackage $zip (Join-Path $scratch 'valid')
 Assert (Test-Path -LiteralPath (Join-Path $package 'reactionLibrary\index.tsx')) 'Plugin entry point was not extracted.'
 Assert (Test-Path -LiteralPath (Join-Path $package 'Bootstrap.ps1')) 'Bootstrap script was not extracted.'
+Assert (-not @(Get-ChildItem -LiteralPath $package -Recurse -Filter '*.cmd' -File).Count) 'The EXE-only package includes a command launcher.'
 $badZip=Join-Path $scratch 'traversal.zip'
 $stream=[IO.File]::Open($badZip,[IO.FileMode]::CreateNew)
 $archive=New-Object IO.Compression.ZipArchive($stream,[IO.Compression.ZipArchiveMode]::Create)

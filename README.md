@@ -2,7 +2,7 @@
 
 [Leia em português (Brasil)](README.pt-BR.md)
 
-The Windows setup ZIP includes English and Portuguese launchers and guides. The preferred `ReactionLibrary-Setup.exe` has a language selector.
+The Windows setup ZIP includes the `ReactionLibrary-Setup.exe` launcher, which has an English and Portuguese language selector, and guides in both languages.
 
 The chat button opens a Discord themed library. The Dorion plugin's **Add folder** stores references to supported images, GIFs, videos, and audio files. Media stays in its original location. Folder scanning and indexing show live progress, and items appear after each batch of 20 references. The picker searches file names, folder paths, and user tags; filters by folder and media type; and sorts by name or import time. Clicking an item starts its upload and sends it to the current chat.
 
@@ -34,7 +34,7 @@ Use an item's **Remove** button to remove it from the library, or choose a folde
 
 ## Vencord plugin
 
-For friends on Windows x64 with Vencord already installed, run `releases/ReactionLibrary-Setup.exe`, select a language, and click **Download and install**. The launcher fetches the latest published GitHub release, verifies GitHub's SHA-256 asset digests, the published checksum file, and every packaged file before opening the release's setup review. The ZIP also contains `Install.cmd` and `Instalar-pt-BR.cmd`, which perform the same download. Setup builds separately against the tested revision and backs up the existing build, loader, settings, and themes before applying changes. **Restore previous installation** recovers the verified snapshot. See `installer/README.txt` for requirements and limits.
+For friends on Windows x64 with Vencord already installed, run `releases/ReactionLibrary-Setup.exe`, select a language, and click **Download and install**. The launcher fetches the latest published GitHub release, verifies GitHub's SHA-256 asset digests, the published checksum file, and every packaged file before opening the release's setup review. Setup builds separately against the tested revision and backs up the existing build, loader, settings, and themes before applying changes. **Restore previous installation** recovers the verified snapshot. See `installer/README.txt` for requirements and limits.
 
 Run `powershell -NoProfile -ExecutionPolicy Bypass -File package-windows.ps1` to regenerate the Windows setup ZIP and executable after updating `vencord/reactionLibrary`. Publish the EXE, ZIP, and both `.sha256` files as assets of the same GitHub release. Run `powershell -NoProfile -ExecutionPolicy Bypass -File test/installer.test.ps1` and `test/installer-bootstrap.test.ps1` to check the setup and update flow without patching Discord. The launcher requires a public GitHub release with SHA-256 asset digests; it stops if the release is unavailable or invalid.
 

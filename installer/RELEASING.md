@@ -31,7 +31,7 @@ proof of publisher identity. The CMS ZIP signature is not timestamped; certifica
 expiry requires re-signing/reissuing the ZIP. Keep the signing key out of GitHub
 and out of the ZIP. Never replace a release asset after announcing its checksum.
 
-The launchers query GitHub's latest public release. Confirm its assets have SHA-256
+The launcher queries GitHub's latest public release. Confirm its assets have SHA-256
 digests in the release API, and enable release immutability when publishing.
 Digest checks do not replace a trusted publisher signature. Until a signed
 release exists, the automatic download flow remains a preview.
@@ -62,7 +62,7 @@ setup package mapped read-only. Windows Sandbox must already be installed.
 6. Verify the previous build and settings return, and newer settings are rescued.
 7. Repeat with a custom source build at the pinned revision, including local edits.
 8. Check refusal with Discord running, unknown loaders, and missing custom source.
-9. Run the EXE and both CMD launchers in the VM. Check both languages, download
+9. Run the EXE in the VM. Check both languages, download
    verification, review, installation, and repeat update.
 10. Check offline/download failures, changed digests, malicious ZIPs, and recovery after stopping setup during a
    switch. Keep process-interruption experiments inside the disposable VM.

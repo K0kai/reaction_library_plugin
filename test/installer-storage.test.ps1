@@ -16,7 +16,9 @@ function Expand-Archive {
         $folder=Join-Path $DestinationPath "node-v$($manifest.node.version)-win-x64"
         New-Item -ItemType Directory -Path $folder -Force|Out-Null
         'verified-node'|Set-Content -LiteralPath (Join-Path $folder 'node.exe')
-        'npm'|Set-Content -LiteralPath (Join-Path $folder 'npm.cmd')
+        $npmCli=Join-Path $folder 'node_modules\npm\bin\npm-cli.js'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $npmCli) -Force|Out-Null
+        'npm'|Set-Content -LiteralPath $npmCli
     } else {
         New-Item -ItemType Directory -Path (Join-Path $DestinationPath 'cmd') -Force|Out-Null
         'verified-git'|Set-Content -LiteralPath (Join-Path $DestinationPath 'cmd\git.exe')
@@ -24,6 +26,7 @@ function Expand-Archive {
 }
 function Run($Program,$Arguments,$Directory) {
     $script:installs++
+    Assert ($Program.EndsWith('node.exe') -and $Arguments[0].EndsWith('npm-cli.js')) 'Tool preparation should invoke npm through Node without a command file.'
     $pnpmRoot=$Arguments[2]
     New-Item -ItemType Directory -Path (Join-Path $pnpmRoot 'node_modules\pnpm\bin') -Force|Out-Null
     'verified-pnpm'|Set-Content -LiteralPath (Join-Path $pnpmRoot 'node_modules\pnpm\bin\pnpm.cjs')
