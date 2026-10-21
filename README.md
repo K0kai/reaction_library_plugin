@@ -1,5 +1,9 @@
 # Reaction Library for Vencord, Dorion, and Equicord
 
+[Leia em português (Brasil)](README.pt-BR.md)
+
+The Windows setup ZIP includes English and Portuguese launchers and guides. The preferred `ReactionLibrary-Setup.exe` has a language selector.
+
 The chat button opens a Discord themed library. The Dorion plugin's **Add folder** stores references to supported images, GIFs, videos, and audio files. Media stays in its original location. Folder scanning and indexing show live progress, and items appear after each batch of 20 references. The picker searches file names, folder paths, and user tags; filters by folder and media type; and sorts by name or import time. Clicking an item starts its upload and sends it to the current chat.
 
 ## Standalone Dorion plugin
@@ -29,6 +33,14 @@ Drag the library's upper-left corner to resize it. The selected size is remember
 Use an item's **Remove** button to remove it from the library, or choose a folder and click **Remove folder** to remove all its indexed items, including subfolders. These operations leave original files untouched. The folder index is refreshed when you add that folder again; it does not watch the filesystem continuously.
 
 ## Vencord plugin
+
+For friends on Windows x64 with Vencord already installed, run `releases/ReactionLibrary-Setup.exe`, select a language, and click **Download and install**. The launcher fetches the latest published GitHub release, verifies GitHub's SHA-256 asset digests, the published checksum file, and every packaged file before opening the release's setup review. The ZIP also contains `Install.cmd` and `Instalar-pt-BR.cmd`, which perform the same download. Setup builds separately against the tested revision and backs up the existing build, loader, settings, and themes before applying changes. **Restore previous installation** recovers the verified snapshot. See `installer/README.txt` for requirements and limits.
+
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File package-windows.ps1` to regenerate the Windows setup ZIP and executable after updating `vencord/reactionLibrary`. Publish the EXE, ZIP, and both `.sha256` files as assets of the same GitHub release. Run `powershell -NoProfile -ExecutionPolicy Bypass -File test/installer.test.ps1` and `test/installer-bootstrap.test.ps1` to check the setup and update flow without patching Discord. The launcher requires a public GitHub release with SHA-256 asset digests; it stops if the release is unavailable or invalid.
+
+Automatic Vencord updating is disabled in helper-built packages so tested custom builds are not silently replaced. Source/custom builds must match the tested Vencord revision; stock version changes are shown before approval and builds that omit existing built-in plugin files are refused. The preview is unsigned until packaged with a code-signing certificate. [Release signing and clean Windows acceptance checks](installer/RELEASING.md) document the remaining release gates; filesystem tests and compilation do not substitute for a live Discord install/update/restore cycle in a disposable VM.
+
+The helper reuses a versioned tool cache after checking every cached file. Successful installs remove temporary source builds, dependency folders and their private store, and duplicate compiled output. Custom-source installations retain a source snapshot for later updates; verified tools and rollback backups remain. The 4 GB free-space check covers temporary build work. `test/installer-storage.test.ps1` checks cache reuse, tamper repair, safe cleanup, and directory-link handling.
 
 The complete maintained plugin is packaged in `vencord/reactionLibrary/`, with a Vencord entry point, native desktop folder access, and the shared runtime including GIF encoding. See that folder's README for installation instructions. Copy the whole folder into `Vencord/src/userplugins/reactionLibrary/` and rebuild Vencord. No Equicord installation or extra GIF dependency is needed to install this package.
 

@@ -939,7 +939,7 @@ function createReactionLibrary(host, options = {}) {
         .${ROOT_CLASS} .rl-more { display: block; margin: 12px auto 0; }
         .${ROOT_CLASS} .rl-folders { display: flex; gap: 6px; padding: 0 12px 10px; }
         .${ROOT_CLASS} .rl-folders select { flex: 1; min-width: 0; }
-        .${ROOT_CLASS} .rl-remove { border: 0; border-radius: 4px; padding: 5px 7px; background: transparent; color: var(--text-danger, #ff858b); cursor: pointer; }
+        .${ROOT_CLASS} .rl-remove { border: 0; border-radius: 4px; padding: 5px 7px; background: #f23f431f; color: var(--text-danger, #ff858b); cursor: pointer; }
         .${ROOT_CLASS} .rl-item-footer { display: flex; align-items: center; }
         .${ROOT_CLASS} .rl-item-footer .rl-edit { flex: 1; min-width: 0; }
         .${ROOT_CLASS} > :not(.rl-scroll) { flex-shrink: 0; }
@@ -950,6 +950,12 @@ function createReactionLibrary(host, options = {}) {
         .${ROOT_CLASS} header { padding-left: 26px; }
         .${ROOT_CLASS} .rl-actions { display: flex; gap: 6px; padding: 5px; flex-wrap: wrap; }
         .${ROOT_CLASS} .rl-actions button { padding: 5px 8px; border: 1px solid var(--rl-border); border-radius: 4px; background: var(--rl-input); color: var(--rl-text); cursor: pointer; }
+        .${ROOT_CLASS} .rl-actions .rl-action-preview { border-color: #5865f280; background: #5865f233; color: #c5cbff; }
+        .${ROOT_CLASS} .rl-actions .rl-action-send { border-color: #23a55980; background: #23a55933; color: #a8e7c0; }
+        .${ROOT_CLASS} .rl-actions .rl-action-voice { border-color: #a970db80; background: #a970db33; color: #e1bcfa; }
+        .${ROOT_CLASS} .rl-actions .rl-action-gif { border-color: #e5963280; background: #e5963233; color: #f8cd91; }
+        .${ROOT_CLASS} .rl-actions .rl-action-close { border-color: var(--rl-border); background: var(--rl-card); color: var(--rl-muted); }
+        .${ROOT_CLASS} .rl-actions button:hover, .${ROOT_CLASS} .rl-remove:hover { filter: brightness(1.2); }
         .${ROOT_CLASS} .rl-preview { padding: 10px 12px; border-bottom: 1px solid var(--rl-border); }
         .${ROOT_CLASS} .rl-preview:empty { display: none; }
         .${ROOT_CLASS} .rl-preview video { display: block; width: 100%; max-height: min(220px, 25vh); background: black; }
@@ -1295,16 +1301,16 @@ function createReactionLibrary(host, options = {}) {
       media.src = url;
       media.addEventListener("error", () => status("Your client cannot play this file's format. You can still send the original file."), { once: true });
       const actions = element("div", "rl-actions");
-      for (const [label, action] of [
-        ["Send file", () => void sendEntry(entry)],
-        ["Send as voice", () => void sendEntry(entry, "voice")],
-        ...entry.kind === "video" ? [["Send as GIF", () => void sendEntry(entry, "gif")]] : [],
-        ["Close preview", () => {
+      for (const [label, className, action] of [
+        ["Send file", "rl-action-send", () => void sendEntry(entry)],
+        ["Send as voice", "rl-action-voice", () => void sendEntry(entry, "voice")],
+        ...entry.kind === "video" ? [["Send as GIF", "rl-action-gif", () => void sendEntry(entry, "gif")]] : [],
+        ["Close preview", "rl-action-close", () => {
           closePlayback();
           position();
         }]
       ]) {
-        const button = element("button", "", label);
+        const button = element("button", className, label);
         button.type = "button";
         button.addEventListener("click", action);
         actions.append(button);
@@ -1890,22 +1896,22 @@ function createReactionLibrary(host, options = {}) {
       item.append(sendButton);
       if (entry.kind === "audio" || entry.kind === "video") {
         const actions = element("div", "rl-actions");
-        const preview = element("button", "", "Preview");
+        const preview = element("button", "rl-action-preview", "Preview");
         preview.type = "button";
         preview.setAttribute("aria-label", `Preview ${entry.name}`);
         preview.addEventListener("click", () => void previewEntry(entry));
         actions.append(preview);
         if (entry.kind === "audio") {
-          const voice = element("button", "", "Send as voice");
+          const voice = element("button", "rl-action-voice", "Send as voice");
           voice.type = "button";
           voice.addEventListener("click", () => void sendEntry(entry, "voice"));
           actions.append(voice);
         }
         if (entry.kind === "video") {
-          const voice = element("button", "", "Send as voice");
+          const voice = element("button", "rl-action-voice", "Send as voice");
           voice.type = "button";
           voice.addEventListener("click", () => void sendEntry(entry, "voice"));
-          const gif = element("button", "", "Send as GIF");
+          const gif = element("button", "rl-action-gif", "Send as GIF");
           gif.type = "button";
           gif.addEventListener("click", () => void sendEntry(entry, "gif"));
           actions.append(voice, gif);
