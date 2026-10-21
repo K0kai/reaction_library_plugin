@@ -1,4 +1,4 @@
-# Reaction Library for Dorion and Equicord
+# Reaction Library for Vencord, Dorion, and Equicord
 
 The chat button opens a Discord themed library. The Dorion plugin's **Add folder** stores references to supported images, GIFs, videos, and audio files. Media stays in its original location. Folder scanning and indexing show live progress, and items appear after each batch of 20 references. The picker searches file names, folder paths, and user tags; filters by folder and media type; and sorts by name or import time. Clicking an item starts its upload and sends it to the current chat.
 
@@ -8,7 +8,7 @@ Keep Dorion's built-in Equicord enabled. Copy **only** `dorion/reaction-library.
 
 If you installed the earlier custom Equicord bundle, remove `Equicord-ReactionLibrary.js` from Dorion's plugins folder and `Equicord-ReactionLibrary.css` from its themes folder before enabling this file.
 
-Persistent references require Dorion's folder picker support. If this is unavailable, the picker reports it and does not copy files. After a restart, select a folder and click **Reconnect** if access needs to be granted again. Moving or deleting the original file makes its reference unavailable until its folder is selected again.
+Persistent references require Dorion's folder picker support. If this is unavailable, the picker reports it and does not copy files. On opening the library, the plugin checks saved folder permissions and automatically attempts to restore access while the opening click is still active. Dorion may show a permission prompt that must be approved. If permission cannot be restored automatically, an access notice lists affected folders with **Restore access** buttons; no reimport is needed. Locked thumbnail placeholders distinguish expired access from an empty library. Missing or unreadable folder handles offer **Select folder again**, which reconnects the references and preserves existing tags. Moving or deleting the original file makes its reference unavailable until its folder is selected again.
 
 On the first library open after this update, a one-time cleanup removes old stored media copies, including unlisted leftovers from interrupted imports. It identifies actual Blob/File values, leaving file handles, folder handles, and reference tags intact. Items backed only by removed copies are also removed from the index. Original files on disk are untouched.
 
@@ -22,13 +22,19 @@ GIF conversion includes the full video's duration, scaled to at most 480 pixels 
 
 Closing the library leaves conversions and uploads running while Dorion remains open. A dot on the chat button indicates a pending send; hovering shows the current status. Reopen the library to see progress or use **Cancel conversion**. Completion sends to the original selected chat even if you switch chats. Background completion or errors show a toast, and a library window reopened during the job stays open. Closing Dorion itself ends these in-memory jobs.
 
-The standalone source is `src/reaction-library.js`. After editing it, run `node build.mjs` to regenerate `dorion/reaction-library.js` using the GIF encoder and build tools already installed in the adjacent Equicord checkout. Only the generated file is installed in Dorion.
+The shared source is `src/reaction-library.js`. After editing it, run `node build.mjs` to regenerate the Dorion bundle and the Vencord runtime using the GIF encoder and build tools already installed in the adjacent Equicord development checkout. This checkout is only a source of development tools; it is not a dependency of the packaged Vencord plugin.
 
 Drag the library's upper-left corner to resize it. The selected size is remembered, the media grid adapts to the width, and the window stays within the screen. The resize handle also supports arrow keys when focused.
 
 Use an item's **Remove** button to remove it from the library, or choose a folder and click **Remove folder** to remove all its indexed items, including subfolders. These operations leave original files untouched. The folder index is refreshed when you add that folder again; it does not watch the filesystem continuously.
 
-## Equicord source plugin
+## Vencord plugin
+
+The complete maintained plugin is packaged in `vencord/reactionLibrary/`, with a Vencord entry point, native desktop folder access, and the shared runtime including GIF encoding. See that folder's README for installation instructions. Copy the whole folder into `Vencord/src/userplugins/reactionLibrary/` and rebuild Vencord. No Equicord installation or extra GIF dependency is needed to install this package.
+
+Desktop Vencord remembers selected folder paths through its native helper, which reads original files on demand and rejects reads outside selected folders. The native helper only writes its folder-path configuration; it does not save converted media or copy imported files.
+
+## Earlier Equicord source plugin
 
 For a normal Equicord desktop build, copy `index.tsx` and `styles.css` to `src/userplugins/reactionLibrary` in an Equicord checkout and build that checkout. With Equicord's dependencies installed in an adjacent `Equicord` folder, run `node check.mjs` here to type check the source plugin without copying files.
 
@@ -38,6 +44,6 @@ The plugin metadata currently uses `Devs.Ven` as a compilation placeholder becau
 
 ## Development and license
 
-Development currently uses dependencies from an adjacent Equicord checkout: clone this repository and Equicord side by side, then install Equicord's dependencies using its documented pnpm workflow. Run `node build.mjs` to build the standalone plugin, `node --test test/standalone.test.cjs` to run its tests, and Equicord's ESLint executable with this repository as the working directory to lint `src/reaction-library.js`.
+Development currently uses dependencies from an adjacent Equicord checkout: clone this repository and Equicord side by side, then install Equicord's dependencies using its documented pnpm workflow. Run `node build.mjs` to build both current plugin packages, `node --test test/*.test.cjs` to run their tests, and Equicord's ESLint executable with this repository as the working directory to lint `src/reaction-library.js`.
 
 Licensed under GPL-3.0-or-later. The generated standalone plugin also includes gifenc under its MIT license; that license is embedded in the generated file. The standalone plugin is the actively developed version; the Equicord source plugin is an earlier implementation.

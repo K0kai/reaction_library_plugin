@@ -434,3 +434,85 @@ test("closing the library leaves conversion running, reopening shows progress, a
     assert.equal(context.busy, false);
     assert.equal(context.lastStatus, "Conversion cancelled.");
 });
+
+test("after restart, expired folder permissions are detected and restored without reimporting", async () => {
+    let permission = "prompt";
+    let requests = 0;
+    let reads = 0;
+    let renders = 0;
+    const original = new Blob(["original video"], { type: "video/mp4" });
+    const entry = { id: "saved", name: "reaction.mp4", path: "Reactions/reaction.mp4", reference: true, tags: ["favorite"] };
+    const directory = {
+        async queryPermission() { return permission; },
+        requestPermission() { requests++; permission = "granted"; return Promise.resolve(permission); }
+    };
+    const fileHandle = { kind: "file", async queryPermission() { return permission; }, async getFile() { reads++; return original; } };
+    const context = vm.createContext({
+        Blob, Error, root: undefined, folderFilter: "", folderAccess: new Map(),
+        entries: [entry], folderHandles: [{ name: "Reactions", handle: directory }],
+        FILE: id => `file:${id}`, accessWarning: true, status() {}, render() { renders++; },
+        dataStore: () => ({ api: { get: async key => { assert.equal(key, "file:saved"); return fileHandle; }, set() { throw new Error("Restoring access must not write media or metadata"); } }, store: null })
+    });
+    vm.runInContext(section("    async function readMedia(", "    async function removeEntries(") + "globalThis.check = refreshFolderAccess; globalThis.read = readMedia; globalThis.restore = reconnect;", context);
+    await context.check();
+    assert.equal(context.folderAccess.get("Reactions"), "prompt");
+    assert.equal(requests, 0);
+    await assert.rejects(context.read(entry), error => error.name === "NotAllowedError");
+    assert.equal(reads, 0);
+    const restored = context.restore("Reactions");
+    assert.equal(requests, 1, "permission request must start synchronously from the click");
+    await restored;
+    assert.equal(context.folderAccess.get("Reactions"), "granted");
+    assert.equal(context.accessWarning, false);
+    assert.equal(renders, 1);
+    assert.equal(await context.read(entry), original);
+    assert.equal(reads, 1);
+    assert.equal(context.entries[0], entry);
+    assert.deepEqual(entry.tags, ["favorite"]);
+    permission = "prompt";
+    await context.check();
+    assert.equal(context.folderAccess.get("Reactions"), "prompt");
+    assert.equal(requests, 1, "rechecking permission must not prompt automatically");
+});
+
+test("denied folder access leaves references intact and shows a restore button", async () => {
+    const entry = { id: "saved", path: "Reactions/reaction.mp4", reference: true, tags: ["favorite"] };
+    const area = { nodes: [], replaceChildren() { this.nodes = []; }, append(node) { this.nodes.push(node); } };
+    const made = [];
+    let requests = 0;
+    const context = vm.createContext({
+        Blob, Error, root: { querySelector: () => area }, folderFilter: "", folderAccess: new Map(),
+        entries: [entry], folderHandles: [{ name: "Reactions", handle: { async queryPermission() { return "denied"; }, requestPermission() { requests++; return Promise.resolve("denied"); } } }],
+        status() {}, position() {}, render() { throw new Error("Must not reload previews after access was denied"); },
+        element(tag, _className, text) { const node = { tag, text, children: [], append(...nodes) { this.children.push(...nodes); }, setAttribute() {}, addEventListener(event, action) { this[event] = action; } }; made.push(node); return node; }
+    });
+    vm.runInContext(section("    async function refreshFolderAccess(", "    async function removeEntries(") + "globalThis.check = refreshFolderAccess;", context);
+    await context.check();
+    const restore = made.find(node => node.text === "Restore access");
+    assert.ok(restore);
+    restore.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 1);
+    assert.equal(context.folderAccess.get("Reactions"), "denied");
+    assert.equal(context.entries[0], entry);
+    assert.deepEqual(entry.tags, ["favorite"]);
+    assert.ok(area.nodes.length);
+});
+
+test("opening the library attempts restoration during its user gesture and stops after refusal", async () => {
+    const asked = [];
+    const permission = new Map([["remembered", "granted"], ["first", "prompt"], ["second", "prompt"], ["last", "prompt"]]);
+    const context = vm.createContext({
+        root: {}, navigator: { userActivation: { isActive: true } }, folderAccess: permission, renderFolderAccess() {},
+        folderHandles: ["remembered", "first", "second", "last"].map(name => ({ name, handle: { async requestPermission() { asked.push(name); return name === "second" ? "denied" : "granted"; } } }))
+    });
+    vm.runInContext(section("    async function restoreAccessOnOpen(", "    async function reconnect(") + "globalThis.run = restoreAccessOnOpen;", context);
+    await context.run();
+    assert.deepEqual(asked, ["first", "second"]);
+    assert.equal(permission.get("first"), "granted");
+    assert.equal(permission.get("second"), "denied");
+    assert.equal(permission.get("last"), "prompt");
+    context.navigator.userActivation.isActive = false;
+    await context.run();
+    assert.equal(asked.length, 2);
+});

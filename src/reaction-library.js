@@ -1,16 +1,16 @@
 /*
- * Reaction Library for Dorion with Equicord enabled
+ * Reaction Library shared client runtime
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 
-(() => {
+export function createReactionLibrary(host, options = {}) {
     const NAME = "Reaction Library";
     const KEY = "index";
     const FILE = id => `file:${id}`;
-    const BUTTON_CLASS = "dorion-reaction-library-button";
-    const ROOT_CLASS = "dorion-reaction-library";
+    const BUTTON_CLASS = "reaction-library-button";
+    const ROOT_CLASS = "reaction-library";
     let root;
     let anchor;
     let entries = [];
@@ -36,6 +36,7 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
     let playbackId = 0;
     let conversion;
     let lastStatus = "";
+    const folderAccess = new Map();
 
     const css = `
         button.${BUTTON_CLASS} { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--icon-default, var(--interactive-icon-default, var(--interactive-normal, #b5bac1))); cursor: pointer; }
@@ -95,17 +96,21 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
         .${ROOT_CLASS} .rl-preview-title { margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .${ROOT_CLASS} .rl-cancel { position: absolute; top: 8px; right: 10px; border: 0; border-radius: 4px; background: var(--rl-input); color: var(--rl-text); padding: 4px 8px; cursor: pointer; }
         .${ROOT_CLASS} .rl-cancel[hidden] { display: none; }
-        button.${BUTTON_CLASS} { position: relative; }
-        button.${BUTTON_CLASS}.rl-working::after { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: #7289ff; }
+        .${BUTTON_CLASS} { position: relative; display: inline-flex; }
+        .${BUTTON_CLASS}.rl-working::after { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: #7289ff; }
+        .${ROOT_CLASS} .rl-access { max-height: 130px; overflow-y: auto; padding: 8px 12px; border-top: 1px solid var(--rl-border); border-bottom: 1px solid var(--rl-border); color: var(--rl-text); background: var(--rl-card); font-size: 12px; }
+        .${ROOT_CLASS} .rl-access:empty { display: none; }
+        .${ROOT_CLASS} .rl-access-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+        .${ROOT_CLASS} .rl-access-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     `;
 
     function vencord() {
-        return globalThis.Vencord;
+        return host ?? globalThis.Vencord;
     }
 
     function dataStore() {
         const api = vencord()?.Api?.DataStore;
-        if (!api) throw new Error("Enable Equicord in Dorion settings, then restart Dorion.");
+        if (!api) throw new Error("The client mod is not ready yet. Try opening the library again.");
         store ??= api.createStore("ReactionLibrary", "files");
         return { api, store };
     }
@@ -161,6 +166,8 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
                 const cleaned = await cleanupLegacyCopies();
                 entries = await api.get(KEY, store) ?? [];
                 folderHandles = await api.get("folders", store) ?? [];
+                await refreshFolderAccess();
+                await restoreAccessOnOpen();
                 if (!panelSize) {
                     const savedSize = await api.get("panelSize", store);
                     if (savedSize && Number.isFinite(savedSize.width) && Number.isFinite(savedSize.height)) resizePanel(savedSize.width, savedSize.height);
@@ -209,13 +216,15 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
 
     async function pickFolder() {
         if (importing || removing) return;
-        if (!globalThis.showDirectoryPicker) {
-            status("This Dorion version does not support persistent folder references. No files were copied.");
+        const native = vencord()?.Native;
+        if (!native && !globalThis.showDirectoryPicker) {
+            status("This client version does not support persistent folder references. No files were copied.");
             return;
         }
         let directory;
-        try { directory = await globalThis.showDirectoryPicker({ mode: "read" }); }
+        try { directory = native ? await native.pickFolder() : await globalThis.showDirectoryPicker({ mode: "read" }); }
         catch (error) { if (error.name !== "AbortError") status(error.message); return; }
+        if (!directory) return;
         importing = true;
         importProgress = { total: 0, processed: 0, imported: 0, skipped: 0, failed: 0, scanning: true };
         updateProgress();
@@ -235,10 +244,15 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
                     }
                 }
             }
-            await scan(directory, directory.name);
+            if (native) {
+                for (const file of directory.files) files.push({ name: file.name, type: "", path: `${directory.name}/${file.relative}`, handle: { kind: "native-file", root: directory.root, relative: file.relative } });
+                importProgress.total = files.length;
+            } else await scan(directory, directory.name);
             const { api, store } = dataStore();
-            folderHandles = [...folderHandles.filter(item => item.name !== directory.name), { name: directory.name, handle: directory }];
+            const handle = native ? { kind: "native-directory", root: directory.root } : directory;
+            folderHandles = [...folderHandles.filter(item => item.name !== directory.name), { name: directory.name, handle }];
             await api.set("folders", folderHandles, store);
+            folderAccess.set(directory.name, "granted");
             importProgress.scanning = false;
             await importFolder(files);
         } catch (error) {
@@ -345,7 +359,7 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
         try {
             const vc = vencord();
             const common = vc?.Webpack?.Common;
-            if (!common) throw new Error("Equicord is not ready yet.");
+            if (!common) throw new Error("The client mod is not ready yet.");
             const channelId = common.SelectedChannelStore.getChannelId();
             const channel = common.ChannelStore.getChannel(channelId);
             if (!channel) throw new Error("Open a chat before sending a reaction.");
@@ -429,7 +443,7 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
             media.preload = "metadata";
             media.playsInline = true;
             media.src = url;
-            media.addEventListener("error", () => status("Dorion cannot play this file's format. You can still send the original file."), { once: true });
+            media.addEventListener("error", () => status("Your client cannot play this file's format. You can still send the original file."), { once: true });
             const actions = element("div", "rl-actions");
             for (const [label, action] of [
                 ["Send file", () => void sendEntry(entry)],
@@ -457,7 +471,7 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
                 signal?.removeEventListener("abort", aborted);
             };
             const done = () => { clean(); resolve(); };
-            const failed = () => { clean(); reject(new Error("Dorion could not decode this video. You can send the original file instead.")); };
+            const failed = () => { clean(); reject(new Error("Your client could not decode this video. You can send the original file instead.")); };
             const aborted = () => { clean(); reject(signal.reason); };
             const timer = setTimeout(() => { clean(); reject(new Error("Video decoding timed out. Try sending the original file.")); }, timeout);
             video.addEventListener(event, done, { once: true });
@@ -497,7 +511,7 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
             canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
             canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
             const context = canvas.getContext("2d", { willReadFrequently: true });
-            if (!context) throw new Error("GIF conversion is unavailable in this Dorion version.");
+            if (!context) throw new Error("GIF conversion is unavailable in this client version.");
             const count = Math.max(1, Math.min(900, Math.ceil(video.duration * 10)));
             const gif = GIFEncoder();
             for (let i = 0; i < count; i++) {
@@ -527,12 +541,12 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
         let stream;
         let recorder;
         try {
-            if (!video.captureStream || !globalThis.MediaRecorder) throw new Error("This Dorion version cannot extract this video's audio. Try a browser-supported video format.");
+            if (!video.captureStream || !globalThis.MediaRecorder) throw new Error("This client version cannot extract this video's audio. Try a browser-supported video format.");
             stream = video.captureStream();
             const tracks = stream.getAudioTracks();
             if (!tracks.length) throw new Error("No supported audio track was found in this video.");
             const mimeType = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find(type => MediaRecorder.isTypeSupported(type));
-            if (!mimeType) throw new Error("Audio extraction is unavailable in this Dorion version.");
+            if (!mimeType) throw new Error("Audio extraction is unavailable in this client version.");
             recorder = new MediaRecorder(new MediaStream(tracks), { mimeType });
             const chunks = [];
             return await new Promise((resolve, reject) => {
@@ -634,9 +648,9 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
         const headerBytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
         const signature = new TextDecoder().decode(headerBytes);
         if (signature.startsWith("OggS") && signature.includes("OpusHead")) return { blob, duration, waveform: wave };
-        if (!globalThis.AudioEncoder || !globalThis.AudioData) throw new Error("Voice conversion is unavailable in this Dorion version. You can send this as a file, or use OGG Opus audio.");
+        if (!globalThis.AudioEncoder || !globalThis.AudioData) throw new Error("Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.");
         const config = { codec: "opus", sampleRate: 48000, numberOfChannels: 1, bitrate: 32000, opus: { frameDuration: 20000 } };
-        if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error("This Dorion version cannot encode voice messages. Send the original file instead.");
+        if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error("This client version cannot encode voice messages. Send the original file instead.");
         const packets = [];
         let header;
         let encodingError;
@@ -706,25 +720,103 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
     }
 
     async function readMedia(entry, request = false) {
+        const folderName = entry.path?.split("/")[0];
+        if (!request && entry.reference && folderAccess.has(folderName) && folderAccess.get(folderName) !== "granted") {
+            const error = new Error("Restore folder access below to load your thumbnails. Your file references are still saved.");
+            error.name = "NotAllowedError";
+            throw error;
+        }
         const { api, store } = dataStore();
         const saved = await api.get(FILE(entry.id), store);
         if (saved instanceof Blob) return saved;
+        if (saved?.kind === "native-file") {
+            const native = vencord()?.Native;
+            if (!native) throw new Error("Desktop file access is unavailable. Restart your client to load the plugin's native helper.");
+            const file = await native.readMedia(saved.root, saved.relative);
+            return new File([file.data], file.name, { type: file.type });
+        }
         if (!saved || saved.kind !== "file") throw new Error("This file is missing. Add its folder again to reconnect it.");
         let permission = await saved.queryPermission({ mode: "read" });
         if (permission !== "granted" && request) permission = await saved.requestPermission({ mode: "read" });
-        if (permission !== "granted") throw new Error("Folder access is needed. Select the folder and click Reconnect.");
+        if (permission !== "granted") {
+            folderAccess.set(folderName, permission);
+            renderFolderAccess();
+            const error = new Error("Restore folder access below to load your thumbnails. Your file references are still saved.");
+            error.name = "NotAllowedError";
+            throw error;
+        }
         return saved.getFile();
     }
 
-    async function reconnect() {
-        const name = folderFilter.split("/")[0];
+    async function refreshFolderAccess() {
+        await Promise.all(folderHandles.map(async folder => {
+            try { folderAccess.set(folder.name, folder.handle.kind === "native-directory" ? "granted" : await folder.handle.queryPermission({ mode: "read" })); }
+            catch { folderAccess.set(folder.name, "unavailable"); }
+        }));
+        for (const entry of entries) {
+            const name = entry.path.split("/")[0];
+            if (entry.reference && !folderHandles.some(folder => folder.name === name)) folderAccess.set(name, "unavailable");
+        }
+        renderFolderAccess();
+    }
+
+    function renderFolderAccess() {
+        const area = root?.querySelector(".rl-access");
+        if (!area) return;
+        area.replaceChildren();
+        const names = new Set(entries.filter(entry => entry.reference).map(entry => entry.path.split("/")[0]));
+        const pending = [...names].filter(name => folderAccess.has(name) && folderAccess.get(name) !== "granted" && (!folderFilter || folderFilter.split("/")[0] === name));
+        if (!pending.length) { position(); return; }
+        area.append(element("div", "", "Folder access needs to be renewed after restarting your client. Your library and tags are still saved."));
+        for (const name of pending) {
+            const row = element("div", "rl-access-row");
+            const missing = folderAccess.get(name) === "unavailable";
+            const button = element("button", "rl-primary", missing ? "Select folder again" : "Restore access");
+            button.type = "button";
+            button.setAttribute("aria-label", `${missing ? "Select" : "Restore access to"} ${name}`);
+            button.addEventListener("click", () => void (missing ? pickFolder() : reconnect(name)));
+            row.append(element("span", "", name), button);
+            area.append(row);
+        }
+        position();
+    }
+
+    async function restoreAccessOnOpen() {
+        if (!root || !navigator.userActivation?.isActive) return;
+        for (const folder of folderHandles) {
+            if (folderAccess.get(folder.name) !== "prompt") continue;
+            if (!navigator.userActivation.isActive) break;
+            try {
+                const permission = await folder.handle.requestPermission({ mode: "read" });
+                folderAccess.set(folder.name, permission);
+                if (permission !== "granted") break;
+            } catch {
+                break;
+            }
+        }
+        renderFolderAccess();
+    }
+
+    async function reconnect(name = folderFilter.split("/")[0]) {
+        if (!name) name = folderHandles.find(folder => folderAccess.get(folder.name) !== "granted")?.name;
         const folder = folderHandles.find(item => item.name === name);
         if (!folder) return status("Select a referenced folder first, or use Add folder to reconnect it.");
         try {
-            if (await folder.handle.requestPermission({ mode: "read" }) !== "granted") return status("Folder access was not granted.");
+            if (folder.handle.kind === "native-directory") {
+                folderAccess.set(folder.name, "granted");
+                accessWarning = false;
+                render();
+                status(`Folder ${folder.name} reconnected.`);
+                return;
+            }
+            const permission = await folder.handle.requestPermission({ mode: "read" });
+            folderAccess.set(folder.name, permission);
+            renderFolderAccess();
+            if (permission !== "granted") return status("Folder access was not granted. Your references and tags are unchanged.");
+            await refreshFolderAccess();
             accessWarning = false;
             render();
-            status("Folder reconnected.");
+            status(`Access to ${folder.name} restored. Thumbnails are loading.`);
         } catch (error) { status(error.message); }
     }
 
@@ -819,6 +911,10 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
                 state.symbol.hidden = true;
                 state.button.prepend(media);
             } catch (error) {
+                if (error.name === "NotAllowedError") {
+                    state.symbol.textContent = "🔒";
+                    state.button.title = `${state.entry.name} · Restore folder access to load its thumbnail`;
+                }
                 if (currentRender === renderId && !accessWarning) {
                     accessWarning = true;
                     status(error.message);
@@ -854,6 +950,7 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
         const currentRender = ++renderId;
         clearPreviews();
         updateFolders();
+        renderFolderAccess();
         const scroll = root.querySelector(".rl-scroll");
         const previousScroll = scroll.scrollTop;
         scroll.replaceChildren();
@@ -1057,7 +1154,10 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
         const progress = element("div", "rl-progress");
         progress.setAttribute("role", "status");
         progress.setAttribute("aria-live", "polite");
-        root.append(add, folders, progress, element("div", "rl-preview"), element("div", "rl-scroll"), element("div", "rl-status"));
+        const access = element("div", "rl-access");
+        access.setAttribute("role", "status");
+        access.setAttribute("aria-live", "polite");
+        root.append(add, folders, access, progress, element("div", "rl-preview"), element("div", "rl-scroll"), element("div", "rl-status"));
         document.body.append(root);
         if (lastStatus) status(lastStatus);
         else syncSendState();
@@ -1087,23 +1187,49 @@ import { applyPalette, GIFEncoder, quantize } from "gifenc";
     }
 
     let queued = false;
+    let frame;
+    let style;
+    let started = false;
     const observer = new MutationObserver(() => {
         if (queued) return;
         queued = true;
-        requestAnimationFrame(() => { queued = false; mount(); });
+        frame = requestAnimationFrame(() => { queued = false; mount(); });
     });
-    function start() {
-        const style = document.createElement("style");
+    function attach() {
+        style = document.createElement("style");
         style.textContent = css;
         document.head.append(style);
-        observer.observe(document.body, { childList: true, subtree: true });
-        mount();
+        if (options.mountButton !== false) {
+            observer.observe(document.body, { childList: true, subtree: true });
+            mount();
+        }
+        document.addEventListener("pointerdown", outsideClick);
+        document.addEventListener("keydown", keydown);
+        window.addEventListener("resize", position);
     }
-    if (document.body) start();
-    else document.addEventListener("DOMContentLoaded", start, { once: true });
-    document.addEventListener("pointerdown", event => {
+    function start() {
+        if (started) return;
+        started = true;
+        if (document.body) attach();
+        else document.addEventListener("DOMContentLoaded", attach, { once: true });
+    }
+    function outsideClick(event) {
         if (root && !root.contains(event.target) && !anchor?.contains(event.target)) close();
-    });
-    document.addEventListener("keydown", event => { if (event.key === "Escape") close(); });
-    window.addEventListener("resize", position);
-})();
+    }
+    function keydown(event) { if (event.key === "Escape") close(); }
+    function stop() {
+        started = false;
+        conversion?.abort();
+        close();
+        observer.disconnect();
+        if (frame !== undefined) cancelAnimationFrame(frame);
+        queued = false;
+        document.removeEventListener("DOMContentLoaded", attach);
+        document.removeEventListener("pointerdown", outsideClick);
+        document.removeEventListener("keydown", keydown);
+        window.removeEventListener("resize", position);
+        style?.remove();
+        if (options.mountButton !== false) document.querySelectorAll(`button.${BUTTON_CLASS}`).forEach(button => button.remove());
+    }
+    return { start, stop, toggle: open };
+}
