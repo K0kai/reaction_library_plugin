@@ -8,7 +8,14 @@ $launcher=Join-Path $root 'releases\ReactionLibrary-Setup.exe'
 $assembly=[Reflection.Assembly]::LoadFile($launcher)
 Assert ('ReactionLibrary.Bootstrap.ps1' -in $assembly.GetManifestResourceNames()) 'The executable does not contain its bootstrap script.'
 $launcherSource=Get-Content -LiteralPath (Join-Path $root 'installer\Launcher.cs') -Raw
-Assert ($launcherSource.Contains('FileMode.CreateNew') -and $launcherSource.Contains('-File \"') -and -not $launcherSource.Contains('-EncodedCommand')) 'The launcher must run the embedded bootstrap from a temporary file, not exceed the Windows command-line limit.'
+Assert ($launcherSource.Contains('FileMode.CreateNew') -and $launcherSource.Contains('-File ') -and -not $launcherSource.Contains('-EncodedCommand')) 'The launcher must run the embedded bootstrap from a temporary file, not exceed the Windows command-line limit.'
+Assert ($launcherSource.Contains('-DownloadOnly') -and $launcherSource.Contains('-Inspect') -and $launcherSource.Contains('-Worker')) 'The EXE must own download, review, and worker progress.'
+Add-Type -AssemblyName System.Windows.Forms
+$form=[Activator]::CreateInstance($assembly.GetType('LauncherForm'),$true)
+try {
+    $captions=@($form.Controls | ForEach-Object { $_.Text }) -join '|'
+    Assert ($captions -match 'Revisar / Instalar|Review / Install' -and $captions -match 'Restaurar instalação anterior|Restore previous installation') 'The EXE has no install and restore controls.'
+} finally { $form.Dispose() }
 $digest='sha256:'+((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant())
 Assert-Hash $zip $digest
 Expect-Failure { Assert-Hash $zip ('sha256:' + ('0'*64)) } 'Changed ZIP passed its digest check.'
@@ -39,4 +46,15 @@ function Invoke-WebRequest { param($Uri,$Headers,[switch]$UseBasicParsing,$OutFi
 $setupBase=Join-Path $scratch 'managed'
 Invoke-LatestSetup -ValidateOnly
 Assert (-not @(Get-ChildItem -LiteralPath (Join-Path $setupBase 'updates') -Directory).Count) 'Validated download left temporary files.'
-Write-Output 'PASS: release metadata, SHA-256 checks, package inventory, and traversal refusal.'
+$DownloadOnly=$true
+$ResultPath=Join-Path $scratch 'download-result.json'
+Invoke-LatestSetup
+$downloaded=Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json
+Assert ((Test-Path -LiteralPath (Join-Path $downloaded.package 'Setup.ps1')) -and $downloaded.publisher -eq 'unsigned') 'Download-only mode did not retain a verified setup package.'
+$inspectJob=Join-Path $scratch 'inspect'
+New-Item -ItemType Directory -Path $inspectJob -Force|Out-Null
+'{"action":"detect"}'|Set-Content -LiteralPath (Join-Path $inspectJob 'request.json') -Encoding UTF8
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $downloaded.package 'Setup.ps1') -Inspect -JobDirectory $inspectJob -Language pt-BR
+Assert ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath (Join-Path $inspectJob 'response.json'))) 'Background setup inspection failed.'
+Assert ((Get-Content -LiteralPath (Join-Path $inspectJob 'response.json') -Raw | ConvertFrom-Json).PSObject.Properties.Name -contains 'targets') 'The EXE did not receive detected Discord targets.'
+Write-Output 'PASS: release metadata, SHA-256 checks, package inventory, traversal refusal, retained download, and background inspection.'

@@ -2,8 +2,9 @@ REACTION LIBRARY - INSTALADOR DE PRÉVIA PARA VENCORD
 
 1. Feche o Discord por completo, inclusive na bandeja. O Vencord já deve estar instalado.
 2. Abra ReactionLibrary-Setup.exe, escolha Português (Brasil) e clique em
-   Baixar e instalar. O programa baixa e verifica a versão pública mais recente
-   do GitHub.
+   Baixar instalador. O programa baixa e verifica a versão pública mais recente
+   do GitHub e mostra revisão e progresso na mesma janela. O PowerShell é
+   executado de forma oculta em segundo plano.
 3. Confira a pasta de recursos do Discord detectada. Escolha outra, se necessário.
 4. Se houver plugins personalizados, selecione o código-fonte correspondente do
    Vencord caso o instalador não o encontre automaticamente.

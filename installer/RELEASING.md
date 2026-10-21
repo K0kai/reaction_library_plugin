@@ -62,8 +62,9 @@ setup package mapped read-only. Windows Sandbox must already be installed.
 6. Verify the previous build and settings return, and newer settings are rescued.
 7. Repeat with a custom source build at the pinned revision, including local edits.
 8. Check refusal with Discord running, unknown loaders, and missing custom source.
-9. Run the EXE in the VM. Check both languages, download
-   verification, review, installation, and repeat update.
+9. Run the EXE in the VM. Check both languages, download verification,
+   review, installation progress, restore, and repeat update in the same window.
+   Confirm no PowerShell or command window appears in front of the EXE.
 10. Check offline/download failures, changed digests, malicious ZIPs, and recovery after stopping setup during a
    switch. Keep process-interruption experiments inside the disposable VM.
 

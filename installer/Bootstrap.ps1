@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-param([ValidateSet('en','pt-BR')][string]$Language = 'en', [string]$LauncherPath, [switch]$LibraryOnly)
+param([ValidateSet('en','pt-BR')][string]$Language = 'en', [string]$LauncherPath, [switch]$LibraryOnly, [switch]$DownloadOnly, [string]$ResultPath)
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -91,30 +91,30 @@ function Expand-CheckedPackage($ZipPath, $Destination) {
     }
     return $package
 }
-function Confirm-ReleasePublisher($Package) {
+function Get-ReleasePublisherStatus($Package) {
     $scripts = @('Setup.ps1','Safety.ps1','Bootstrap.ps1')
     $signatures = @($scripts | ForEach-Object { Get-AuthenticodeSignature -LiteralPath (Join-Path $Package $_) })
     if (@($signatures | Where-Object { $_.Status -eq 'Valid' }).Count -eq $scripts.Count) {
         $thumbprints = @($signatures | ForEach-Object { $_.SignerCertificate.Thumbprint } | Select-Object -Unique)
         if ($thumbprints.Count -ne 1) { throw 'The release scripts have different publishers.' }
         if ($trustedPublisher -and $thumbprints[0] -ne $trustedPublisher) { throw 'The release is not signed by the launcher publisher.' }
-        if (-not $trustedPublisher) {
-            Add-Type -AssemblyName System.Windows.Forms
-            $subject = $signatures[0].SignerCertificate.Subject
-            $message = if ($Language -eq 'pt-BR') { "Publicador verificado pelo Windows: $subject`r`nConfiar neste publicador e executar o instalador?" } else { "Windows verified this publisher: $subject`r`nTrust this publisher and run the setup?" }
-            $title = if ($Language -eq 'pt-BR') { 'Confirmar publicador' } else { 'Confirm publisher' }
-            if ([Windows.Forms.MessageBox]::Show($message,$title,'YesNo','Question') -ne 'Yes') { throw 'The publisher was not approved.' }
-        }
-        return
+        return @{ status=$(if ($trustedPublisher) { 'trusted' } else { 'signed-unpinned' }); subject=$signatures[0].SignerCertificate.Subject }
     }
     if ($trustedPublisher) { throw 'The signed launcher requires release scripts signed by the same publisher.' }
     if (@($signatures | Where-Object { $_.Status -ne 'NotSigned' }).Count) { throw 'A release script has an invalid or untrusted signature.' }
+    return @{ status='unsigned'; subject='' }
+}
+function Confirm-ReleasePublisher($Package) {
+    $publisher = Get-ReleasePublisherStatus $Package
+    if ($publisher.status -eq 'trusted') { return }
     Add-Type -AssemblyName System.Windows.Forms
-    $message = if ($Language -eq 'pt-BR') {
-        'Esta versão não tem assinatura de publicador. Os hashes do GitHub e do ZIP conferem, mas não comprovam a identidade do autor separadamente. Executar o instalador baixado?'
-    } else {
-        'This release has no publisher signature. The GitHub and ZIP hashes match, but they do not independently prove the author. Run the downloaded setup?'
+    if ($publisher.status -eq 'signed-unpinned') {
+        $message = if ($Language -eq 'pt-BR') { "Publicador verificado pelo Windows: $($publisher.subject)`r`nConfiar neste publicador e executar o instalador?" } else { "Windows verified this publisher: $($publisher.subject)`r`nTrust this publisher and run the setup?" }
+        $title = if ($Language -eq 'pt-BR') { 'Confirmar publicador' } else { 'Confirm publisher' }
+        if ([Windows.Forms.MessageBox]::Show($message,$title,'YesNo','Question') -ne 'Yes') { throw 'The publisher was not approved.' }
+        return
     }
+    $message = if ($Language -eq 'pt-BR') { 'Esta versão não tem assinatura de publicador. Os hashes do GitHub e do ZIP conferem, mas não comprovam a identidade do autor separadamente. Executar o instalador baixado?' } else { 'This release has no publisher signature. The GitHub and ZIP hashes match, but they do not independently prove the author. Run the downloaded setup?' }
     $title = if ($Language -eq 'pt-BR') { 'Versão sem assinatura' } else { 'Unsigned release' }
     if ([Windows.Forms.MessageBox]::Show($message,$title,'YesNo','Warning') -ne 'Yes') { throw 'The unsigned release was not approved.' }
 }
@@ -129,6 +129,7 @@ function Invoke-LatestSetup([switch]$ValidateOnly) {
     Assert-OrdinaryDirectory $updatesRoot
     $work = Join-Path $updatesRoot ([Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
+    $keepWork = $false
     try {
         $zip = Join-Path $work $zipName
         $hashFile = Join-Path $work $hashName
@@ -141,13 +142,20 @@ function Invoke-LatestSetup([switch]$ValidateOnly) {
         if ($line -cnotmatch ('^([0-9a-f]{64})  ' + [regex]::Escape($zipName) + '$') -or $Matches[1] -cne (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'The published SHA-256 file does not match the setup ZIP.' }
         $package = Expand-CheckedPackage $zip (Join-Path $work 'extracted')
         if ($ValidateOnly) { return }
+        if ($DownloadOnly) {
+            if (-not $ResultPath) { throw 'A result path is required for download-only mode.' }
+            $publisher = Get-ReleasePublisherStatus $package
+            @{ package=$package; work=$work; publisher=$publisher.status; subject=$publisher.subject; tag=$release.tag_name } | ConvertTo-Json | Set-Content -LiteralPath $ResultPath -Encoding UTF8
+            $keepWork = $true
+            return
+        }
         Confirm-ReleasePublisher $package
         Write-Output "Verified GitHub release $($release.tag_name). Opening its setup."
         & (Join-Path $package 'Setup.ps1') -Language $Language
     } finally {
         $root = [IO.Path]::GetFullPath($updatesRoot).TrimEnd('\') + '\'
         $target = [IO.Path]::GetFullPath($work)
-        if ($target.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $target)) {
+        if (-not $keepWork -and $target.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $target)) {
             Assert-OrdinaryDirectory $updatesRoot
             Remove-UpdateEntry (Get-Item -LiteralPath $target -Force)
         }
@@ -159,7 +167,8 @@ if (-not $LibraryOnly) {
     catch {
         Add-Type -AssemblyName System.Windows.Forms
         $title = if ($Language -eq 'pt-BR') { 'Atualização interrompida' } else { 'Update stopped' }
-        [Windows.Forms.MessageBox]::Show($_.Exception.Message,$title) | Out-Null
+        if ($DownloadOnly -and $ResultPath) { @{ error=$_.Exception.Message } | ConvertTo-Json | Set-Content -LiteralPath $ResultPath -Encoding UTF8 }
+        else { [Windows.Forms.MessageBox]::Show($_.Exception.Message,$title) | Out-Null }
         exit 1
     }
 }

@@ -30,7 +30,7 @@ O código compartilhado fica em `src/reaction-library.js`. Depois de editá-lo, 
 
 ## Plugin para Vencord
 
-Para Windows x64 com Vencord já instalado, abra `releases/ReactionLibrary-Setup.exe`, escolha Português (Brasil) e clique em **Baixar e instalar**. O programa baixa a versão mais recente publicada no GitHub, verifica os hashes SHA-256 e abre a revisão da instalação. O instalador compila separadamente e faz cópias de segurança antes de alterar os arquivos. **Restaurar instalação anterior** recupera a versão salva. Consulte [o guia do instalador](installer/README.pt-BR.txt) para requisitos e limitações.
+Para Windows x64 com Vencord já instalado, abra `releases/ReactionLibrary-Setup.exe`, escolha Português (Brasil) e clique em **Baixar instalador**. O programa baixa a versão mais recente publicada no GitHub, verifica os hashes SHA-256 e mostra detecção, revisão, progresso e restauração na mesma janela. O PowerShell executa apenas como processo oculto para as verificações e a compilação. O instalador compila separadamente e faz cópias de segurança antes de alterar os arquivos. **Restaurar instalação anterior** recupera a versão salva. Consulte [o guia do instalador](installer/README.pt-BR.txt) para requisitos e limitações.
 
 Para gerar novamente o ZIP e o executável, execute `powershell -NoProfile -ExecutionPolicy Bypass -File package-windows.ps1`. Publique o EXE, o ZIP e os dois arquivos `.sha256` na mesma versão do GitHub. Para verificar instalação e atualização com dados simulados, execute `test/installer.test.ps1` e `test/installer-bootstrap.test.ps1`. O iniciador exige uma versão pública do GitHub com hashes SHA-256 dos arquivos publicados.
 

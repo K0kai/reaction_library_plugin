@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-param([switch]$Worker, [string]$JobDirectory, [switch]$LibraryOnly, [switch]$PrepareOnly, [ValidateSet('en','pt-BR')][string]$Language = 'en')
+param([switch]$Worker, [switch]$Inspect, [string]$JobDirectory, [switch]$LibraryOnly, [switch]$PrepareOnly, [ValidateSet('en','pt-BR')][string]$Language = 'en')
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $base = Join-Path $env:LOCALAPPDATA 'ReactionLibrarySetup'
@@ -191,6 +191,27 @@ function Invoke-SetupJob($Request) {
 }
 
 if ($LibraryOnly) { return }
+if ($Inspect) {
+    $response = Join-Path $JobDirectory 'response.json'
+    try {
+        $request = Read-Json (Join-Path $JobDirectory 'request.json')
+        if ($request.action -eq 'detect') {
+            Save-Json $response @{ targets=@(Get-DiscordTargets | ForEach-Object { $_.resources }) }
+        } elseif ($request.action -eq 'plan') {
+            Verify-Payload
+            Assert-DiscordClosed
+            $manifest = Read-Json (Join-Path $PSScriptRoot 'toolchain.json')
+            $plan = Get-Plan $request.resources $request.source $manifest
+            Save-Json $response @{ summary=(Plan-Summary $plan $Language) }
+        } elseif ($request.action -eq 'restore') {
+            Assert-DiscordClosed
+            $backup = Get-RestorePoint
+            $record = Read-Json (Join-Path $backup 'backup.json')
+            Save-Json $response @{ backup=$backup; created=$record.created; target=$record.plan.dist }
+        } else { throw 'Unknown setup request.' }
+        exit 0
+    } catch { Save-Json $response @{ error=$_.Exception.Message }; exit 1 }
+}
 if ($Worker) {
     try { Invoke-SetupJob (Read-Json (Join-Path $JobDirectory 'request.json')) *>&1 | Out-File -LiteralPath (Join-Path $JobDirectory 'progress.log') -Encoding UTF8; exit 0 }
     catch { "ERROR: $($_.Exception.Message)" | Out-File -LiteralPath (Join-Path $JobDirectory 'progress.log') -Append -Encoding UTF8; exit 1 }

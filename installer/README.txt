@@ -1,8 +1,9 @@
 REACTION LIBRARY - SAFER VENCORD SETUP (PREVIEW)
 
 1. Fully exit Discord, including its tray icon. Vencord must already be installed.
-2. Run ReactionLibrary-Setup.exe and choose English. It downloads and verifies
-   the latest public GitHub release, then opens its setup review.
+2. Run ReactionLibrary-Setup.exe and choose English. Click Download setup. It
+   downloads and verifies the latest public GitHub release, then shows the setup
+   review and progress in the same window. PowerShell runs hidden in the background.
 3. Check the detected Discord resources folder. Select a different one if needed.
 4. If custom plugins are detected, select the matching Vencord source checkout
    if setup cannot find it automatically.
