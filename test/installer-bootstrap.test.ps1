@@ -7,6 +7,8 @@ $zip=Join-Path $root 'releases\ReactionLibrary-Windows-Setup.zip'
 $launcher=Join-Path $root 'releases\ReactionLibrary-Setup.exe'
 $assembly=[Reflection.Assembly]::LoadFile($launcher)
 Assert ('ReactionLibrary.Bootstrap.ps1' -in $assembly.GetManifestResourceNames()) 'The executable does not contain its bootstrap script.'
+$launcherSource=Get-Content -LiteralPath (Join-Path $root 'installer\Launcher.cs') -Raw
+Assert ($launcherSource.Contains('FileMode.CreateNew') -and $launcherSource.Contains('-File \"') -and -not $launcherSource.Contains('-EncodedCommand')) 'The launcher must run the embedded bootstrap from a temporary file, not exceed the Windows command-line limit.'
 $digest='sha256:'+((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant())
 Assert-Hash $zip $digest
 Expect-Failure { Assert-Hash $zip ('sha256:' + ('0'*64)) } 'Changed ZIP passed its digest check.'

@@ -76,22 +76,30 @@ internal sealed class LauncherForm : Form {
                 if (stream == null) throw new InvalidOperationException("The embedded updater is missing.");
                 using (var reader = new StreamReader(stream, Encoding.UTF8)) source = reader.ReadToEnd();
             }
-            var source64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(source));
-            var launcherPath = Assembly.GetExecutingAssembly().Location.Replace("'", "''");
-            var command = "$source=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + source64 + "')); & ([ScriptBlock]::Create($source)) -Language '" + (Portuguese ? "pt-BR" : "en") + "' -LauncherPath '" + launcherPath + "'";
-            var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+            var launcherPath = Assembly.GetExecutingAssembly().Location;
+            var work = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ReactionLibrarySetup", "launcher");
+            Directory.CreateDirectory(work);
+            var bootstrapPath = Path.Combine(work, "bootstrap-" + Guid.NewGuid().ToString("N") + ".ps1");
             var shell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
-            var info = new ProcessStartInfo(shell, "-NoProfile -ExecutionPolicy Bypass -STA -EncodedCommand " + encoded) {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            var exitCode = await Task.Run(() => {
-                using (var process = Process.Start(info)) {
-                    if (process == null) throw new InvalidOperationException("PowerShell could not start.");
-                    process.WaitForExit();
-                    return process.ExitCode;
-                }
-            });
+            int exitCode;
+            try {
+                using (var file = new FileStream(bootstrapPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(file, new UTF8Encoding(true))) writer.Write(source);
+                var arguments = "-NoProfile -ExecutionPolicy Bypass -STA -File \"" + bootstrapPath + "\" -Language " + (Portuguese ? "pt-BR" : "en") + " -LauncherPath \"" + launcherPath + "\"";
+                var info = new ProcessStartInfo(shell, arguments) {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                exitCode = await Task.Run(() => {
+                    using (var process = Process.Start(info)) {
+                        if (process == null) throw new InvalidOperationException("PowerShell could not start.");
+                        process.WaitForExit();
+                        return process.ExitCode;
+                    }
+                });
+            } finally {
+                if (File.Exists(bootstrapPath)) File.Delete(bootstrapPath);
+            }
             if (exitCode == 0) Close();
             else status.Text = Portuguese ? "A atualização foi interrompida. Consulte a mensagem exibida." : "Update stopped. See the message shown.";
         } catch (Exception error) {
