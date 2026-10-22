@@ -33,11 +33,18 @@ function attachmentKey(value) {
 }
 
 export function contextMedia(navId, props, baseHref) {
-    if (!props || (navId === "image-context" && "href" in props && !props.src)) return null;
+    if (!props) return null;
     const media = props.target?.closest?.("img,video,audio");
-    const candidates = [props.itemSrc, props.src, props.itemHref, props.href, media?.currentSrc, media?.src];
+    const candidates = [props.itemSrc, props.src, media?.currentSrc, media?.src, props.itemHref, props.href];
     const candidate = candidates.find(value => typeof value === "string" && mediaKind({ name: value.split("?")[0] }))
         ?? (media && candidates.find(value => typeof value === "string"));
+    if (!candidate && navId === "message") {
+        const attachments = props.message?.attachments?.filter(item => mediaKind({ name: item.filename ?? "", type: item.content_type ?? "" }));
+        if (attachments?.length !== 1) return null;
+        const attachment = attachments[0];
+        const urls = [...new Set([attachment.url, attachment.proxy_url].filter(value => typeof value === "string" && value.startsWith("https:")))];
+        return urls.length ? { urls, name: attachment.filename ?? new URL(urls[0]).pathname.split("/").pop() } : null;
+    }
     if (!candidate) return null;
     let url;
     try { url = new URL(candidate, baseHref); } catch { return null; }

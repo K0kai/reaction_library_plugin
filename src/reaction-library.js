@@ -4,6 +4,7 @@
  */
 
 import { uploadFile, uploadVoice } from "./discord-sender.js";
+import { folderDisplayName, folderPathLabel, uniqueFolderName } from "./folder-identity.js";
 import { translate } from "./localization.js";
 import { extractVideoAudio, prepareClip, prepareGif } from "./media-conversion.js";
 import { contextMedia, firstDownload, mediaFilename, mediaKind, mediaTypeAllowed } from "./media-source.js";
@@ -300,7 +301,7 @@ export function createReactionLibrary(host, options = {}) {
 
     function updateSaveFolderLabel() {
         const label = root?.querySelector(".rl-save-folder-label");
-        if (label) label.textContent = defaultFolder ? `${t("Save folder")}: ${defaultFolder.name}` : t("No save folder selected");
+        if (label) label.textContent = defaultFolder ? `${t("Save folder")}: ${folderDisplayName(defaultFolder)}` : t("No save folder selected");
     }
 
     async function chooseSaveFolder() {
@@ -314,9 +315,7 @@ export function createReactionLibrary(host, options = {}) {
             const { api, store } = dataStore();
             const saved = await api.get("folders", store) ?? [];
             const handle = native?.pickSaveFolder ? { kind: "native-directory", root: selected.root } : selected;
-            let { name } = selected;
-            let suffix = 2;
-            while (saved.some(folder => folder.name === name && (handle.root ? folder.handle.root !== handle.root : folder.handle !== handle))) name = `${selected.name} (${suffix++})`;
+            const name = await uniqueFolderName(saved, selected.name, handle);
             const folder = { name, handle };
             const next = [...saved.filter(item => item.name !== name), folder];
             await api.setMany([["folders", next], ["defaultFolder", folder]], store);
@@ -325,7 +324,7 @@ export function createReactionLibrary(host, options = {}) {
             folderAccess.set(name, "granted");
             updateSaveFolderLabel();
             updateFolders();
-            status(`${t("Save folder")}: ${name}`);
+            status(`${t("Save folder")}: ${folderDisplayName(folder)}`);
         } catch (error) { status(error.message); }
     }
 
@@ -427,19 +426,27 @@ export function createReactionLibrary(host, options = {}) {
         if (contextPatches.length) return;
         const common = vencord()?.Webpack?.Common;
         const api = vencord()?.Api?.ContextMenu;
-        if (!api?.addContextMenuPatch || !common?.Menu?.MenuItem || !common?.React?.createElement) return;
-        for (const navId of ["message", "image-context"]) {
-            const patch = (children, props) => {
-                const source = contextMedia(navId, props, location.href);
-                if (!source) return;
-                children.push(common.React.createElement(common.Menu.MenuItem, {
-                    id: "reaction-library-add-media",
-                    label: t("Add to reaction library"),
-                    action: () => queueContextSave(source)
-                }));
-            };
+        if (!api || !common?.Menu?.MenuItem || !common?.React?.createElement) return;
+        const addItem = (navId, children, props) => {
+            const source = contextMedia(navId, props, location.href);
+            if (!source) return;
+            children.push(common.React.createElement(common.Menu.MenuItem, {
+                id: "reaction-library-add-media",
+                label: t("Add to reaction library"),
+                action: () => queueContextSave(source)
+            }));
+        };
+        if (api.addGlobalContextMenuPatch && api.removeGlobalContextMenuPatch) {
+            const patch = (navId, children, props) => addItem(navId, children, props);
+            api.addGlobalContextMenuPatch(patch);
+            contextPatches.push(() => api.removeGlobalContextMenuPatch(patch));
+            return;
+        }
+        if (!api.addContextMenuPatch) return;
+        for (const navId of ["message", "image-context", "audio-context"]) {
+            const patch = (children, props) => addItem(navId, children, props);
             api.addContextMenuPatch(navId, patch);
-            contextPatches.push({ api, navId, patch });
+            contextPatches.push(() => api.removeContextMenuPatch?.(navId, patch));
         }
     }
 
@@ -880,8 +887,9 @@ export function createReactionLibrary(host, options = {}) {
         }
         if (folderFilter && !folders.has(folderFilter)) folderFilter = "";
         select.replaceChildren();
+        const knownFolders = defaultFolder ? [...folderHandles, defaultFolder] : folderHandles;
         for (const folder of ["", ...[...folders].sort()]) {
-            const option = element("option", "", folder || "All folders");
+            const option = element("option", "", folder ? folderPathLabel(folder, knownFolders) : "All folders");
             option.value = folder;
             select.append(option);
         }
@@ -1291,7 +1299,7 @@ export function createReactionLibrary(host, options = {}) {
     function keydown(event) { if (event.key === "Escape") close(); }
     function stop() {
         started = false;
-        for (const { api, navId, patch } of contextPatches.splice(0)) api.removeContextMenuPatch?.(navId, patch);
+        for (const removePatch of contextPatches.splice(0)) removePatch();
         localeStore?.removeChangeListener?.(refreshLocale);
         localeStore = undefined;
         conversion?.abort();

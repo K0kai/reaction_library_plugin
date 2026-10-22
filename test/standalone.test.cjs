@@ -14,6 +14,8 @@ const localizationModule = { exports: {} };
 vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/localization.js"), "utf8"), { format: "cjs" }).code, { module: localizationModule, exports: localizationModule.exports });
 const senderModule = { exports: {} };
 vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/discord-sender.js"), "utf8"), { format: "cjs" }).code, { module: senderModule, exports: senderModule.exports, File });
+const folderModule = { exports: {} };
+vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/folder-identity.js"), "utf8"), { format: "cjs" }).code, { module: folderModule, exports: folderModule.exports });
 
 function section(from, to) {
     return source.slice(source.indexOf(from), source.indexOf(to));
@@ -84,12 +86,61 @@ test("spoiler preview resolves to the original attachment with proxy fallback", 
     assert.deepEqual(Array.from(source.urls), [original, proxy, preview]);
 });
 
+test("image menus accept a linked image without a separate src", () => {
+    const href = "https://cdn.discordapp.com/attachments/1/2/image.png";
+    const source = mediaSource.contextMedia("image-context", { href }, "https://discord.com/channels/1/2");
+    assert.equal(source.name, "image.png");
+    assert.deepEqual(Array.from(source.urls), [href]);
+    assert.equal(mediaSource.contextMedia("image-context", { href: "https://example.com/page" }, "https://discord.com"), null);
+});
+
+test("audio message menus use a single attachment when no media URL is supplied", () => {
+    const url = "https://cdn.discordapp.com/attachments/1/2/voice-message.ogg";
+    const attachment = { url, filename: "voice-message.ogg", content_type: "audio/ogg" };
+    const source = mediaSource.contextMedia("message", { message: { attachments: [attachment] } }, "https://discord.com");
+    assert.equal(source.name, "voice-message.ogg");
+    assert.deepEqual(Array.from(source.urls), [url]);
+    assert.equal(mediaSource.contextMedia("message", { message: { attachments: [attachment, attachment] } }, "https://discord.com"), null);
+});
+
 test("downloaded media names remain usable as library references", () => {
     const name = mediaSource.mediaFilename("SPOILER_clip", "video/mp4");
     assert.equal(name, "SPOILER_clip.mp4");
     assert.equal(mediaSource.mediaKind({ name }), "video");
     assert.equal(mediaSource.mediaFilename("../reaction.png", "image/png"), ".._reaction.png");
     assert.equal(mediaSource.mediaTypeAllowed("text/html"), false);
+});
+
+test("save folder label uses the real directory name while keys remain unique", async () => {
+    const { folderDisplayName, folderPathLabel, uniqueFolderName } = folderModule.exports;
+    const other = { name: "discord", handle: { kind: "native-directory", root: "D:\\other\\discord" } };
+    const selected = { kind: "native-directory", root: "D:\\media\\discord" };
+    assert.equal(await uniqueFolderName([other], "discord", selected), "discord (2)");
+    assert.equal(folderDisplayName({ name: "discord (2)", handle: selected }), "discord");
+    assert.equal(folderPathLabel("discord (2)", [{ name: "discord (2)", handle: selected }]), "discord");
+    assert.equal(folderPathLabel("discord (2)/clips", [{ name: "discord (2)", handle: selected }]), "discord/clips");
+    assert.equal(await uniqueFolderName([other, { name: "discord (2)", handle: selected }], "discord", selected), "discord (2)");
+    const browserHandle = { name: "discord", async isSameEntry(otherHandle) { return otherHandle?.id === 42; } };
+    assert.equal(await uniqueFolderName([{ name: "discord", handle: browserHandle }], "discord", { id: 42, name: "discord" }), "discord");
+});
+
+test("folder dropdown shows the real name while filtering by the saved key", () => {
+    const options = [];
+    const select = { replaceChildren() { options.length = 0; }, append(option) { options.push(option); } };
+    const remove = {};
+    const context = vm.createContext({
+        entries: [{ path: "discord (2)/image.png" }],
+        folderHandles: [{ name: "discord (2)", handle: { root: "D:\\media\\discord" } }],
+        defaultFolder: undefined, folderFilter: "discord (2)", importing: false, removing: false,
+        root: { querySelector: selector => selector === ".rl-folder-select" ? select : remove },
+        element: (_tag, _className, text) => ({ textContent: text }),
+        folderPathLabel: folderModule.exports.folderPathLabel
+    });
+    vm.runInContext(section("    function updateFolders(", "    function clearPreviews(") + "globalThis.update = updateFolders;", context);
+    context.update();
+    assert.equal(options[1].textContent, "discord");
+    assert.equal(options[1].value, "discord (2)");
+    assert.equal(select.value, "discord (2)");
 });
 
 function importer(failAt = Infinity) {

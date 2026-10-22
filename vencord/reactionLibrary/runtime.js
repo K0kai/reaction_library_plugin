@@ -906,6 +906,48 @@ async function uploadVoice(common, channelId, prepared) {
   if (reply && common.PendingReplyStore.getPendingReply(channelId) === reply) common.FluxDispatcher.dispatch({ type: "DELETE_PENDING_REPLY", channelId });
 }
 
+// src/folder-identity.js
+function folderDisplayName(folder) {
+  const handle = folder?.handle;
+  if (handle?.name) return handle.name;
+  if (handle?.root) return handle.root.split(/[\\/]/).filter(Boolean).at(-1) ?? folder.name;
+  return folder?.name ?? "";
+}
+function folderPathLabel(path, folders) {
+  const slash = path.indexOf("/");
+  const key = slash < 0 ? path : path.slice(0, slash);
+  const folder = folders.find((item) => item.name === key);
+  return folder ? `${folderDisplayName(folder)}${slash < 0 ? "" : path.slice(slash)}` : path;
+}
+async function sameDirectory(left, right) {
+  if (left?.root && right?.root) return left.root === right.root;
+  if (left === right) return true;
+  if (left?.isSameEntry && right) {
+    try {
+      return await left.isSameEntry(right);
+    } catch {
+      return false;
+    }
+  }
+  if (right?.isSameEntry && left) {
+    try {
+      return await right.isSameEntry(left);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+async function uniqueFolderName(saved, name, handle) {
+  let candidate = name;
+  let suffix = 2;
+  while (true) {
+    const existing = saved.find((folder) => folder.name === candidate);
+    if (!existing || await sameDirectory(existing.handle, handle)) return candidate;
+    candidate = `${name} (${suffix++})`;
+  }
+}
+
 // src/localization.js
 var portuguese = {
   "Reaction Library": "Biblioteca de rea\xE7\xF5es",
@@ -1338,10 +1380,17 @@ function attachmentKey(value) {
   }
 }
 function contextMedia(navId, props, baseHref) {
-  if (!props || navId === "image-context" && "href" in props && !props.src) return null;
+  if (!props) return null;
   const media = props.target?.closest?.("img,video,audio");
-  const candidates = [props.itemSrc, props.src, props.itemHref, props.href, media?.currentSrc, media?.src];
+  const candidates = [props.itemSrc, props.src, media?.currentSrc, media?.src, props.itemHref, props.href];
   const candidate = candidates.find((value) => typeof value === "string" && mediaKind({ name: value.split("?")[0] })) ?? (media && candidates.find((value) => typeof value === "string"));
+  if (!candidate && navId === "message") {
+    const attachments = props.message?.attachments?.filter((item) => mediaKind({ name: item.filename ?? "", type: item.content_type ?? "" }));
+    if (attachments?.length !== 1) return null;
+    const attachment2 = attachments[0];
+    const urls2 = [...new Set([attachment2.url, attachment2.proxy_url].filter((value) => typeof value === "string" && value.startsWith("https:")))];
+    return urls2.length ? { urls: urls2, name: attachment2.filename ?? new URL(urls2[0]).pathname.split("/").pop() } : null;
+  }
   if (!candidate) return null;
   let url;
   try {
@@ -1781,7 +1830,7 @@ function createReactionLibrary(host, options = {}) {
   }
   function updateSaveFolderLabel() {
     const label = root?.querySelector(".rl-save-folder-label");
-    if (label) label.textContent = defaultFolder ? `${t("Save folder")}: ${defaultFolder.name}` : t("No save folder selected");
+    if (label) label.textContent = defaultFolder ? `${t("Save folder")}: ${folderDisplayName(defaultFolder)}` : t("No save folder selected");
   }
   async function chooseSaveFolder() {
     const native = vencord()?.Native;
@@ -1798,9 +1847,7 @@ function createReactionLibrary(host, options = {}) {
       const { api, store: store2 } = dataStore();
       const saved = await api.get("folders", store2) ?? [];
       const handle = native?.pickSaveFolder ? { kind: "native-directory", root: selected.root } : selected;
-      let { name } = selected;
-      let suffix = 2;
-      while (saved.some((folder2) => folder2.name === name && (handle.root ? folder2.handle.root !== handle.root : folder2.handle !== handle))) name = `${selected.name} (${suffix++})`;
+      const name = await uniqueFolderName(saved, selected.name, handle);
       const folder = { name, handle };
       const next = [...saved.filter((item) => item.name !== name), folder];
       await api.setMany([["folders", next], ["defaultFolder", folder]], store2);
@@ -1809,7 +1856,7 @@ function createReactionLibrary(host, options = {}) {
       folderAccess.set(name, "granted");
       updateSaveFolderLabel();
       updateFolders();
-      status(`${t("Save folder")}: ${name}`);
+      status(`${t("Save folder")}: ${folderDisplayName(folder)}`);
     } catch (error) {
       status(error.message);
     }
@@ -1920,19 +1967,27 @@ function createReactionLibrary(host, options = {}) {
     if (contextPatches.length) return;
     const common = vencord()?.Webpack?.Common;
     const api = vencord()?.Api?.ContextMenu;
-    if (!api?.addContextMenuPatch || !common?.Menu?.MenuItem || !common?.React?.createElement) return;
-    for (const navId of ["message", "image-context"]) {
-      const patch = (children, props) => {
-        const source = contextMedia(navId, props, location.href);
-        if (!source) return;
-        children.push(common.React.createElement(common.Menu.MenuItem, {
-          id: "reaction-library-add-media",
-          label: t("Add to reaction library"),
-          action: () => queueContextSave(source)
-        }));
-      };
+    if (!api || !common?.Menu?.MenuItem || !common?.React?.createElement) return;
+    const addItem = (navId, children, props) => {
+      const source = contextMedia(navId, props, location.href);
+      if (!source) return;
+      children.push(common.React.createElement(common.Menu.MenuItem, {
+        id: "reaction-library-add-media",
+        label: t("Add to reaction library"),
+        action: () => queueContextSave(source)
+      }));
+    };
+    if (api.addGlobalContextMenuPatch && api.removeGlobalContextMenuPatch) {
+      const patch = (navId, children, props) => addItem(navId, children, props);
+      api.addGlobalContextMenuPatch(patch);
+      contextPatches.push(() => api.removeGlobalContextMenuPatch(patch));
+      return;
+    }
+    if (!api.addContextMenuPatch) return;
+    for (const navId of ["message", "image-context", "audio-context"]) {
+      const patch = (children, props) => addItem(navId, children, props);
       api.addContextMenuPatch(navId, patch);
-      contextPatches.push({ api, navId, patch });
+      contextPatches.push(() => api.removeContextMenuPatch?.(navId, patch));
     }
   }
   async function importFolder(files) {
@@ -2404,8 +2459,9 @@ function createReactionLibrary(host, options = {}) {
     }
     if (folderFilter && !folders.has(folderFilter)) folderFilter = "";
     select.replaceChildren();
+    const knownFolders = defaultFolder ? [...folderHandles, defaultFolder] : folderHandles;
     for (const folder of ["", ...[...folders].sort()]) {
-      const option = element("option", "", folder || "All folders");
+      const option = element("option", "", folder ? folderPathLabel(folder, knownFolders) : "All folders");
       option.value = folder;
       select.append(option);
     }
@@ -2848,7 +2904,7 @@ function createReactionLibrary(host, options = {}) {
   }
   function stop() {
     started = false;
-    for (const { api, navId, patch } of contextPatches.splice(0)) api.removeContextMenuPatch?.(navId, patch);
+    for (const removePatch of contextPatches.splice(0)) removePatch();
     localeStore?.removeChangeListener?.(refreshLocale);
     localeStore = void 0;
     conversion?.abort();

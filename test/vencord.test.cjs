@@ -14,6 +14,7 @@ test("Vencord runtime starts and stops without injecting a duplicate chat button
     const windowListeners = new Map();
     const styles = [];
     const menuPatches = new Map();
+    let globalMenuPatch;
     let observes = 0;
     const source = readFileSync(path.join(__dirname, "../src/reaction-library.js"), "utf8");
     const compiled = transformSync(source, { format: "cjs", loader: "js" }).code;
@@ -32,9 +33,12 @@ test("Vencord runtime starts and stops without injecting a duplicate chat button
     const senderModule = { exports: {} };
     const senderSource = readFileSync(path.join(__dirname, "../src/discord-sender.js"), "utf8");
     vm.runInNewContext(transformSync(senderSource, { format: "cjs", loader: "js" }).code, { module: senderModule, exports: senderModule.exports });
+    const folderModule = { exports: {} };
+    const folderSource = readFileSync(path.join(__dirname, "../src/folder-identity.js"), "utf8");
+    vm.runInNewContext(transformSync(folderSource, { format: "cjs", loader: "js" }).code, { module: folderModule, exports: folderModule.exports });
     const module = { exports: {} };
     vm.runInNewContext(compiled, {
-        module, exports: module.exports, require: name => name === "./localization.js" ? localizationModule.exports : name === "./media-source.js" ? mediaModule.exports : name === "./voice-codec.js" ? voiceModule.exports : name === "./media-conversion.js" ? conversionModule.exports : name === "./discord-sender.js" ? senderModule.exports : requireTools(name), URL,
+        module, exports: module.exports, require: name => name === "./localization.js" ? localizationModule.exports : name === "./media-source.js" ? mediaModule.exports : name === "./voice-codec.js" ? voiceModule.exports : name === "./media-conversion.js" ? conversionModule.exports : name === "./discord-sender.js" ? senderModule.exports : name === "./folder-identity.js" ? folderModule.exports : requireTools(name), URL,
         location: { href: "https://discord.com/channels/1/2" },
         document: {
             body: {}, head: { append: style => styles.push(style) },
@@ -49,7 +53,9 @@ test("Vencord runtime starts and stops without injecting a duplicate chat button
     const runtime = module.exports.createReactionLibrary({
         Api: { ContextMenu: {
             addContextMenuPatch: (id, patch) => menuPatches.set(id, patch),
-            removeContextMenuPatch: id => menuPatches.delete(id)
+            removeContextMenuPatch: id => menuPatches.delete(id),
+            addGlobalContextMenuPatch: patch => { globalMenuPatch = patch; },
+            removeGlobalContextMenuPatch: patch => { if (globalMenuPatch === patch) globalMenuPatch = undefined; }
         } },
         Webpack: { Common: { Menu: { MenuItem: "item" }, React: { createElement: (type, props) => ({ type, props }) } } }
     }, { mountButton: false });
@@ -57,18 +63,26 @@ test("Vencord runtime starts and stops without injecting a duplicate chat button
     runtime.start();
     runtime.start();
     assert.equal(styles.length, 1);
-    assert.deepEqual([...menuPatches.keys()], ["message", "image-context"]);
+    assert.equal(menuPatches.size, 0);
+    assert.equal(typeof globalMenuPatch, "function");
     const items = [];
-    menuPatches.get("message")(items, { itemSrc: "https://cdn.discordapp.com/attachments/1/2/clip.mp4" });
+    globalMenuPatch("message", items, { itemSrc: "https://cdn.discordapp.com/attachments/1/2/clip.mp4" });
     assert.equal(items[0].props.label, "Add to reaction library");
+    const imageItems = [];
+    globalMenuPatch("image-context", imageItems, { href: "https://cdn.discordapp.com/attachments/1/2/reaction.png" });
+    assert.equal(imageItems.length, 1);
+    const audioItems = [];
+    globalMenuPatch("message", audioItems, { message: { attachments: [{ filename: "voice-message.ogg", url: "https://cdn.discordapp.com/attachments/1/2/voice-message.ogg" }] } });
+    assert.equal(audioItems.length, 1);
     const unrelated = [];
-    menuPatches.get("message")(unrelated, { itemSrc: "https://example.com/page" });
+    globalMenuPatch("message", unrelated, { itemSrc: "https://example.com/page" });
     assert.equal(unrelated.length, 0);
     assert.equal(documentListeners.size, 2);
     assert.equal(windowListeners.size, 1);
     assert.equal(observes, 0);
     runtime.stop();
     assert.equal(menuPatches.size, 0);
+    assert.equal(globalMenuPatch, undefined);
     assert.equal(styles[0].removed, true);
     assert.equal(documentListeners.size, 0);
     assert.equal(windowListeners.size, 0);
