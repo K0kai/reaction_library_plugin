@@ -11,6 +11,12 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from "nod
 const configPath = () => join(app.getPath("userData"), "reaction-library-folders.json");
 const saveConfigPath = () => join(app.getPath("userData"), "reaction-library-save-folder.json");
 
+async function requireSaveFolder(selectedRoot: string) {
+    const savedRoot: unknown = JSON.parse(await readFile(saveConfigPath(), "utf8"));
+    if (typeof savedRoot !== "string" || selectedRoot !== savedRoot || await realpath(selectedRoot) !== savedRoot) throw new Error("Choose a default save folder in Reaction Library first.");
+    return savedRoot;
+}
+
 async function allowedFolders(): Promise<string[]> {
     try {
         const value: unknown = JSON.parse(await readFile(configPath(), "utf8"));
@@ -50,8 +56,7 @@ export async function pickSaveFolder(_: unknown) {
 }
 
 export async function saveMedia(_: unknown, selectedRoot: string, filename: string, data: Uint8Array) {
-    const savedRoot: unknown = JSON.parse(await readFile(saveConfigPath(), "utf8"));
-    if (typeof savedRoot !== "string" || selectedRoot !== savedRoot || await realpath(selectedRoot) !== savedRoot) throw new Error("Choose a default save folder in Reaction Library first.");
+    const savedRoot = await requireSaveFolder(selectedRoot);
     if (!filename || basename(filename) !== filename || /[\\/:*?"<>|\x00-\x1f]/.test(filename) || filename === "." || filename === "..") throw new Error("Invalid media filename.");
     if (!ArrayBuffer.isView(data) || data.BYTES_PER_ELEMENT !== 1 || !data.byteLength) throw new Error("The media file is empty.");
     const extension = extname(filename);
@@ -69,8 +74,7 @@ export async function saveMedia(_: unknown, selectedRoot: string, filename: stri
 }
 
 export async function downloadMedia(_: unknown, selectedRoot: string, sourceUrl: string, filename: string) {
-    const savedRoot: unknown = JSON.parse(await readFile(saveConfigPath(), "utf8"));
-    if (typeof savedRoot !== "string" || selectedRoot !== savedRoot || await realpath(selectedRoot) !== savedRoot) throw new Error("Choose a default save folder in Reaction Library first.");
+    await requireSaveFolder(selectedRoot);
     const url = new URL(sourceUrl);
     if (url.protocol !== "https:") throw new Error("This media could not be downloaded.");
     const response = await net.fetch(url.href);

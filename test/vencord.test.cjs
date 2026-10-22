@@ -17,9 +17,24 @@ test("Vencord runtime starts and stops without injecting a duplicate chat button
     let observes = 0;
     const source = readFileSync(path.join(__dirname, "../src/reaction-library.js"), "utf8");
     const compiled = transformSync(source, { format: "cjs", loader: "js" }).code;
+    const mediaModule = { exports: {} };
+    const mediaSource = readFileSync(path.join(__dirname, "../src/media-source.js"), "utf8");
+    vm.runInNewContext(transformSync(mediaSource, { format: "cjs", loader: "js" }).code, { module: mediaModule, exports: mediaModule.exports, URL });
+    const localizationModule = { exports: {} };
+    const localizationSource = readFileSync(path.join(__dirname, "../src/localization.js"), "utf8");
+    vm.runInNewContext(transformSync(localizationSource, { format: "cjs", loader: "js" }).code, { module: localizationModule, exports: localizationModule.exports });
+    const voiceModule = { exports: {} };
+    const voiceSource = readFileSync(path.join(__dirname, "../src/voice-codec.js"), "utf8");
+    vm.runInNewContext(transformSync(voiceSource, { format: "cjs", loader: "js" }).code, { module: voiceModule, exports: voiceModule.exports });
+    const conversionModule = { exports: {} };
+    const conversionSource = readFileSync(path.join(__dirname, "../src/media-conversion.js"), "utf8");
+    vm.runInNewContext(transformSync(conversionSource, { format: "cjs", loader: "js" }).code, { module: conversionModule, exports: conversionModule.exports, require: requireTools });
+    const senderModule = { exports: {} };
+    const senderSource = readFileSync(path.join(__dirname, "../src/discord-sender.js"), "utf8");
+    vm.runInNewContext(transformSync(senderSource, { format: "cjs", loader: "js" }).code, { module: senderModule, exports: senderModule.exports });
     const module = { exports: {} };
     vm.runInNewContext(compiled, {
-        module, exports: module.exports, require: requireTools, URL,
+        module, exports: module.exports, require: name => name === "./localization.js" ? localizationModule.exports : name === "./media-source.js" ? mediaModule.exports : name === "./voice-codec.js" ? voiceModule.exports : name === "./media-conversion.js" ? conversionModule.exports : name === "./discord-sender.js" ? senderModule.exports : requireTools(name), URL,
         location: { href: "https://discord.com/channels/1/2" },
         document: {
             body: {}, head: { append: style => styles.push(style) },

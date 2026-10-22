@@ -865,8 +865,638 @@ var require_gifenc = __commonJS({
   }
 });
 
-// src/reaction-library.js
+// src/discord-sender.js
+async function uploadFile(vc, common, channelId, channel, file, spoiler) {
+  const draftType = common.DraftType.ChannelMessage;
+  await common.UploadHandler.promptToUpload([file], channel, draftType);
+  const uploads = [...common.UploadAttachmentStore.getUploads(channelId, draftType)];
+  const index = uploads.findIndex((upload2) => upload2.item.file === file);
+  if (index < 0) throw new Error("The upload was not accepted.");
+  const [upload] = uploads.splice(index, 1);
+  if (spoiler) upload.item.isSpoiler = true;
+  common.UploadManager.setUploads({ uploads, channelId, draftType });
+  const reply = common.PendingReplyStore.getPendingReply(channelId);
+  common.FluxDispatcher.dispatch({ type: "DELETE_PENDING_REPLY", channelId });
+  await vc.Util.sendMessage(channelId, {}, false, {
+    ...common.MessageActions.getSendMessageOptionsForReply(reply),
+    attachmentsToUpload: [upload]
+  });
+}
+async function uploadVoice(common, channelId, prepared) {
+  const reply = common.PendingReplyStore.getPendingReply(channelId);
+  const upload = new common.CloudUploader({ file: new File([prepared.blob], "voice-message.ogg", { type: "audio/ogg; codecs=opus" }), isThumbnail: false, platform: 1 }, channelId);
+  await new Promise((resolve, reject) => {
+    upload.on("complete", resolve);
+    upload.on("error", () => reject(new Error("Voice message upload failed.")));
+    Promise.resolve(upload.upload()).catch(reject);
+  });
+  await common.RestAPI.post({
+    url: common.Constants.Endpoints.MESSAGES(channelId),
+    body: {
+      flags: 8192,
+      channel_id: channelId,
+      content: "",
+      nonce: common.SnowflakeUtils.fromTimestamp(Date.now()),
+      sticker_ids: [],
+      type: 0,
+      attachments: [{ id: "0", filename: "voice-message.ogg", uploaded_filename: upload.uploadedFilename, waveform: prepared.waveform, duration_secs: prepared.duration }],
+      message_reference: reply ? common.MessageActions.getSendMessageOptionsForReply(reply)?.messageReference : null
+    }
+  });
+  if (reply && common.PendingReplyStore.getPendingReply(channelId) === reply) common.FluxDispatcher.dispatch({ type: "DELETE_PENDING_REPLY", channelId });
+}
+
+// src/localization.js
+var portuguese = {
+  "Reaction Library": "Biblioteca de rea\xE7\xF5es",
+  "Loading your library\u2026": "Carregando sua biblioteca\u2026",
+  "Scanning folder": "Verificando pasta",
+  "files found": "arquivos encontrados",
+  "Indexing": "Indexando",
+  "Import stopped": "Importa\xE7\xE3o interrompida",
+  "Import complete": "Importa\xE7\xE3o conclu\xEDda",
+  "referenced": "referenciados",
+  "skipped": "ignorados",
+  "failed": "com falha",
+  "Folder import progress": "Progresso da importa\xE7\xE3o da pasta",
+  "Previously indexed items are still available.": "Os itens j\xE1 indexados continuam dispon\xEDveis.",
+  "The client mod is not ready yet. Try opening the library again.": "O mod do cliente ainda n\xE3o est\xE1 pronto. Tente abrir a biblioteca novamente.",
+  "The client mod is not ready yet.": "O mod do cliente ainda n\xE3o est\xE1 pronto.",
+  "This client version does not support persistent folder references. No files were copied.": "Esta vers\xE3o do cliente n\xE3o oferece refer\xEAncias permanentes a pastas. Nenhum arquivo foi copiado.",
+  "Storage write failed.": "Falha ao salvar os dados.",
+  "Open a chat before sending a reaction.": "Abra uma conversa antes de enviar uma rea\xE7\xE3o.",
+  "Preparing clip\u2026": "Preparando trecho\u2026",
+  "Choose audio or video to send as a voice message.": "Escolha um \xE1udio ou v\xEDdeo para enviar como mensagem de voz.",
+  "You cannot send voice messages in this channel.": "Voc\xEA n\xE3o pode enviar mensagens de voz neste canal.",
+  "Preparing voice message\u2026": "Preparando mensagem de voz\u2026",
+  "Uploading voice message\u2026": "Enviando mensagem de voz\u2026",
+  "Choose a video to send as a GIF.": "Escolha um v\xEDdeo para enviar como GIF.",
+  "Uploading GIF\u2026": "Enviando GIF\u2026",
+  "The upload was not accepted.": "O envio do arquivo n\xE3o foi aceito.",
+  "Conversion cancelled.": "Convers\xE3o cancelada.",
+  "Could not send this reaction.": "N\xE3o foi poss\xEDvel enviar esta rea\xE7\xE3o.",
+  "Only audio and video can be clipped.": "Somente \xE1udios e v\xEDdeos podem ser recortados.",
+  "Clip recording is unavailable in this client version.": "A grava\xE7\xE3o de trechos n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente.",
+  "Choose a valid clip start and end time.": "Escolha hor\xE1rios v\xE1lidos para o in\xEDcio e o fim do trecho.",
+  "Clip recording is unavailable for this format in this client.": "N\xE3o \xE9 poss\xEDvel gravar trechos deste formato neste cliente.",
+  "This client cannot encode a clip of this type.": "Este cliente n\xE3o consegue codificar um trecho deste tipo.",
+  "Could not record this clip.": "N\xE3o foi poss\xEDvel gravar este trecho.",
+  "The recorded clip was empty.": "O trecho gravado est\xE1 vazio.",
+  "Your client cannot play this file's format. You can still send the original file.": "Seu cliente n\xE3o consegue reproduzir este formato. Voc\xEA ainda pode enviar o arquivo original.",
+  "Send file": "Enviar arquivo",
+  "Send as spoiler": "Enviar como spoiler",
+  "Send as voice": "Enviar como voz",
+  "Send as GIF": "Enviar como GIF",
+  "Close preview": "Fechar pr\xE9via",
+  "The preview could not seek to the clip start. Try playing again.": "A pr\xE9via n\xE3o conseguiu ir ao in\xEDcio do trecho. Tente reproduzir novamente.",
+  "Clip start": "In\xEDcio do trecho",
+  "Clip end": "Fim do trecho",
+  "Send clip": "Enviar trecho",
+  "Send clip as spoiler": "Enviar trecho como spoiler",
+  "Send clip as voice": "Enviar trecho como voz",
+  "Your client could not decode this video. You can send the original file instead.": "Seu cliente n\xE3o conseguiu decodificar este v\xEDdeo. Voc\xEA pode enviar o arquivo original.",
+  "Video decoding timed out. Try sending the original file.": "A decodifica\xE7\xE3o do v\xEDdeo demorou demais. Tente enviar o arquivo original.",
+  "The video has no readable frames or duration.": "O v\xEDdeo n\xE3o tem quadros ou dura\xE7\xE3o leg\xEDveis.",
+  "GIF conversion is unavailable in this client version.": "A convers\xE3o para GIF n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente.",
+  "This GIF is too large to prepare in memory. Try a shorter video or send the original file.": "Este GIF \xE9 grande demais para preparar na mem\xF3ria. Tente um v\xEDdeo mais curto ou envie o arquivo original.",
+  "This client version cannot extract this video's audio. Try a browser-supported video format.": "Esta vers\xE3o do cliente n\xE3o consegue extrair o \xE1udio do v\xEDdeo. Tente um formato de v\xEDdeo compat\xEDvel.",
+  "No supported audio track was found in this video.": "Nenhuma faixa de \xE1udio compat\xEDvel foi encontrada neste v\xEDdeo.",
+  "Audio extraction is unavailable in this client version.": "A extra\xE7\xE3o de \xE1udio n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente.",
+  "Could not extract this video's audio.": "N\xE3o foi poss\xEDvel extrair o \xE1udio deste v\xEDdeo.",
+  "The video's audio track was empty.": "A faixa de \xE1udio do v\xEDdeo est\xE1 vazia.",
+  "Audio packet is too large.": "O pacote de \xE1udio \xE9 grande demais.",
+  "Extracting the video's audio in memory\u2026": "Extraindo o \xE1udio do v\xEDdeo na mem\xF3ria\u2026",
+  "This audio file is empty or could not be decoded.": "Este \xE1udio est\xE1 vazio ou n\xE3o p\xF4de ser decodificado.",
+  "Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.": "A convers\xE3o para mensagem de voz n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente. Envie como arquivo ou use \xE1udio OGG Opus.",
+  "This client version cannot encode voice messages. Send the original file instead.": "Esta vers\xE3o do cliente n\xE3o consegue codificar mensagens de voz. Envie o arquivo original.",
+  "Voice conversion produced no audio.": "A convers\xE3o para mensagem de voz n\xE3o produziu \xE1udio.",
+  "Voice message upload failed.": "Falha ao enviar a mensagem de voz.",
+  "Restore folder access below to load your thumbnails. Your file references are still saved.": "Restaure o acesso \xE0 pasta abaixo para carregar as miniaturas. As refer\xEAncias aos arquivos continuam salvas.",
+  "Desktop file access is unavailable. Restart your client to load the plugin's native helper.": "O acesso a arquivos locais n\xE3o est\xE1 dispon\xEDvel. Reinicie o cliente para carregar o componente nativo do plugin.",
+  "This file is missing. Add its folder again to reconnect it.": "Este arquivo n\xE3o foi encontrado. Adicione a pasta novamente para reconect\xE1-lo.",
+  "Folder access needs to be renewed after restarting your client. Your library and tags are still saved.": "O acesso \xE0s pastas precisa ser renovado ap\xF3s reiniciar o cliente. Sua biblioteca e etiquetas continuam salvas.",
+  "Select folder again": "Selecionar pasta novamente",
+  "Restore access": "Restaurar acesso",
+  "Select": "Selecionar",
+  "Restore access to": "Restaurar acesso a",
+  "Select a referenced folder first, or use Add folder to reconnect it.": "Selecione uma pasta referenciada ou use Adicionar pasta para reconect\xE1-la.",
+  "Folder access was not granted. Your references and tags are unchanged.": "O acesso \xE0 pasta n\xE3o foi concedido. Suas refer\xEAncias e etiquetas n\xE3o foram alteradas.",
+  "All folders": "Todas as pastas",
+  "No reactions match your search.": "Nenhuma rea\xE7\xE3o corresponde \xE0 busca.",
+  "Choose a folder to start your reaction library.": "Escolha uma pasta para come\xE7ar sua biblioteca de rea\xE7\xF5es.",
+  "Preview and trim": "Pr\xE9via e recorte",
+  "Save": "Salvar",
+  "Add tags": "Adicionar etiquetas",
+  "Remove": "Remover",
+  "Tags, separated by commas": "Etiquetas, separadas por v\xEDrgulas",
+  "Drag the upper-left corner to resize. Arrow keys also work.": "Arraste o canto superior esquerdo para redimensionar. As setas do teclado tamb\xE9m funcionam.",
+  "Resize library": "Redimensionar biblioteca",
+  "Cancel conversion": "Cancelar convers\xE3o",
+  "Search names, folders, and tags": "Buscar nomes, pastas e etiquetas",
+  "Search reactions": "Buscar rea\xE7\xF5es",
+  "Type": "Tipo",
+  "All types": "Todos os tipos",
+  "Images and GIFs": "Imagens e GIFs",
+  "Videos": "V\xEDdeos",
+  "Audio": "\xC1udio",
+  "Sort": "Ordenar",
+  "Newest": "Mais recentes",
+  "Oldest": "Mais antigos",
+  "Name": "Nome",
+  "Add folder": "Adicionar pasta",
+  "Set save folder": "Definir pasta para salvar",
+  "Save folder": "Pasta para salvar",
+  "No save folder selected": "Nenhuma pasta para salvar selecionada",
+  "Add to reaction library": "Adicionar \xE0 biblioteca de rea\xE7\xF5es",
+  "Choose a default save folder in Reaction Library first.": "Escolha primeiro uma pasta padr\xE3o para salvar na Biblioteca de rea\xE7\xF5es.",
+  "This media could not be downloaded.": "N\xE3o foi poss\xEDvel baixar esta m\xEDdia.",
+  "This media is too large to save (256 MiB limit).": "Esta m\xEDdia \xE9 grande demais para salvar (limite de 256 MiB).",
+  "The selected file is not supported media.": "O arquivo selecionado n\xE3o \xE9 uma m\xEDdia compat\xEDvel.",
+  "Save folder access expired. Set the save folder again in Reaction Library.": "O acesso \xE0 pasta para salvar expirou. Defina a pasta novamente na Biblioteca de rea\xE7\xF5es.",
+  "The save folder is unavailable. Open Reaction Library and set the save folder again.": "A pasta para salvar n\xE3o est\xE1 dispon\xEDvel. Abra a Biblioteca de rea\xE7\xF5es e defina a pasta novamente.",
+  "Library folder": "Pasta da biblioteca",
+  "Reconnect": "Reconectar",
+  "Remove folder": "Remover pasta",
+  "Restore folder access to load its thumbnail": "Restaure o acesso \xE0 pasta para carregar a miniatura",
+  "Options for": "Op\xE7\xF5es para",
+  "Preview": "Pr\xE9via",
+  "Send": "Enviar",
+  "Remove from library": "Remover da biblioteca"
+};
+function translate(message, localeCode) {
+  if (!/^pt(?:-|$)/i.test(localeCode) || typeof message !== "string") return message;
+  const direct = portuguese[message];
+  if (direct) return direct;
+  return message.replace(/\b(?:Sending|Sent|Removed|Recording clip|Converting GIF|Extracting audio|Show more|Folder|Access to)\b[^]*$/, (value) => {
+    let match;
+    if (match = /^Sending (.+)…$/.exec(value)) return `Enviando ${match[1]}\u2026`;
+    if (match = /^Sent (.+)\.$/.exec(value)) return `${match[1]} enviado.`;
+    if (match = /^Removed (.+) old stored copies\. File references were preserved\.$/.exec(value)) return `${match[1]} c\xF3pias antigas removidas. As refer\xEAncias aos arquivos foram preservadas.`;
+    if (match = /^Recording clip · (.+)$/.exec(value)) return `Gravando trecho \xB7 ${match[1]}`;
+    if (match = /^Converting GIF · frame (.+)$/.exec(value)) return `Convertendo GIF \xB7 quadro ${match[1]}`;
+    if (match = /^Extracting audio · (.+) \(plays through once\)$/.exec(value)) return `Extraindo \xE1udio \xB7 ${match[1]} (reproduz uma vez)`;
+    if (match = /^Show more \((.+)\)$/.exec(value)) return `Mostrar mais (${match[1]})`;
+    if (match = /^Folder (.+) reconnected\.$/.exec(value)) return `Pasta ${match[1]} reconectada.`;
+    if (match = /^Access to (.+) restored\. Thumbnails are loading\.$/.exec(value)) return `Acesso a ${match[1]} restaurado. As miniaturas est\xE3o carregando.`;
+    return value;
+  });
+}
+
+// src/media-conversion.js
 var import_gifenc = __toESM(require_gifenc());
+async function prepareClip(blob, kind, clip, signal, status) {
+  if (kind !== "audio" && kind !== "video") throw new Error("Only audio and video can be clipped.");
+  if (!globalThis.MediaRecorder) throw new Error("Clip recording is unavailable in this client version.");
+  const media = document.createElement(kind);
+  const url = URL.createObjectURL(blob);
+  let stream;
+  let recorder;
+  media.preload = "auto";
+  media.playsInline = true;
+  media.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;pointer-events:none";
+  document.body.append(media);
+  try {
+    await waitForMedia(media, "loadedmetadata", signal, () => {
+      media.src = url;
+      media.load();
+    });
+    const { start, end } = clip;
+    if (!Number.isFinite(media.duration) || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > media.duration || end - start < 0.1) throw new Error("Choose a valid clip start and end time.");
+    if (start) await waitForMedia(media, "seeked", signal, () => {
+      media.currentTime = start;
+    });
+    if (!media.captureStream) throw new Error("Clip recording is unavailable for this format in this client.");
+    await media.play();
+    signal?.throwIfAborted();
+    stream = media.captureStream();
+    if (!stream.getTracks().some((track) => track.readyState === "live")) throw new Error("Clip recording is unavailable for this format in this client.");
+    media.pause();
+    if (Math.abs(media.currentTime - start) > 5e-3) await waitForMedia(media, "seeked", signal, () => {
+      media.currentTime = start;
+    });
+    signal?.throwIfAborted();
+    const mimeType = kind === "video" ? ["video/webm", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus"] : ["audio/webm", "audio/webm;codecs=opus"];
+    const supported = mimeType.find((type) => MediaRecorder.isTypeSupported(type));
+    if (!supported) throw new Error("This client cannot encode a clip of this type.");
+    recorder = new MediaRecorder(stream, { mimeType: supported });
+    const chunks = [];
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+        media.removeEventListener("timeupdate", progress);
+        media.removeEventListener("ended", stop);
+      };
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const stop = () => {
+        if (recorder.state !== "inactive") recorder.stop();
+      };
+      const abort = () => {
+        stop();
+        fail(new Error("Conversion cancelled."));
+      };
+      const progress = () => {
+        status(`Recording clip \xB7 ${Math.min(100, Math.round((media.currentTime - start) / (end - start) * 100))}%`);
+        if (media.currentTime >= end) stop();
+      };
+      const timer = setTimeout(stop, Math.ceil((end - start) * 1e3) + 1e3);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onerror = () => fail(new Error("Could not record this clip."));
+      recorder.onstop = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const result = new Blob(chunks, { type: supported });
+        result.size ? resolve(result) : reject(new Error("The recorded clip was empty."));
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      media.addEventListener("timeupdate", progress);
+      media.addEventListener("ended", stop, { once: true });
+      try {
+        recorder.start();
+        Promise.resolve(media.play()).catch(fail);
+      } catch (error) {
+        fail(error);
+      }
+    });
+  } finally {
+    media.pause();
+    if (recorder?.state !== "inactive") recorder.stop();
+    stream?.getTracks().forEach((track) => track.stop());
+    media.removeAttribute("src");
+    media.load();
+    media.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+function waitForMedia(video, event, signal, action, timeout = 3e4) {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const clean = () => {
+      clearTimeout(timer);
+      video.removeEventListener(event, done);
+      video.removeEventListener("error", failed);
+      signal?.removeEventListener("abort", aborted);
+    };
+    const done = () => {
+      clean();
+      resolve();
+    };
+    const failed = () => {
+      clean();
+      reject(new Error("Your client could not decode this video. You can send the original file instead."));
+    };
+    const aborted = () => {
+      clean();
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      clean();
+      reject(new Error("Video decoding timed out. Try sending the original file."));
+    }, timeout);
+    video.addEventListener(event, done, { once: true });
+    video.addEventListener("error", failed, { once: true });
+    signal?.addEventListener("abort", aborted, { once: true });
+    try {
+      action?.();
+    } catch (error) {
+      clean();
+      reject(error);
+    }
+  });
+}
+async function conversionVideo(blob, signal) {
+  const video = document.createElement("video");
+  const url = URL.createObjectURL(blob);
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  video.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;pointer-events:none";
+  document.body.append(video);
+  const dispose = () => {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    video.remove();
+    URL.revokeObjectURL(url);
+  };
+  try {
+    await waitForMedia(video, "loadeddata", signal, () => {
+      video.src = url;
+      video.load();
+    });
+    if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) throw new Error("The video has no readable frames or duration.");
+    return { video, dispose };
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+}
+async function prepareGif(blob, signal, status) {
+  const { video, dispose } = await conversionVideo(blob, signal);
+  const canvas = document.createElement("canvas");
+  try {
+    const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("GIF conversion is unavailable in this client version.");
+    const count = Math.max(1, Math.min(900, Math.ceil(video.duration * 10)));
+    const gif = (0, import_gifenc.GIFEncoder)();
+    for (let i = 0; i < count; i++) {
+      signal?.throwIfAborted();
+      const time = i * video.duration / count;
+      if (Math.abs(video.currentTime - time) > 1e-5) await waitForMedia(video, "seeked", signal, () => {
+        video.currentTime = time;
+      });
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      const palette = (0, import_gifenc.quantize)(data, 128);
+      const pixels = (0, import_gifenc.applyPalette)(data, palette);
+      const delay = (Math.round((i + 1) * video.duration * 100 / count) - Math.round(i * video.duration * 100 / count)) * 10;
+      gif.writeFrame(pixels, canvas.width, canvas.height, { palette, delay: Math.max(10, delay), repeat: 0 });
+      if (gif.bytesView().length > 64 * 1024 * 1024) throw new Error("This GIF is too large to prepare in memory. Try a shorter video or send the original file.");
+      status(`Converting GIF \xB7 frame ${(i + 1).toLocaleString()} / ${count.toLocaleString()}`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    gif.finish();
+    return new Blob([gif.bytesView()], { type: "image/gif" });
+  } finally {
+    canvas.width = canvas.height = 0;
+    dispose();
+  }
+}
+async function extractVideoAudio(blob, signal, status) {
+  const { video, dispose } = await conversionVideo(blob, signal);
+  let stream;
+  let recorder;
+  try {
+    if (!video.captureStream || !globalThis.MediaRecorder) throw new Error("This client version cannot extract this video's audio. Try a browser-supported video format.");
+    await video.play();
+    signal?.throwIfAborted();
+    stream = video.captureStream();
+    const tracks = stream.getAudioTracks();
+    if (!tracks.some((track) => track.readyState === "live")) throw new Error("No supported audio track was found in this video.");
+    const mimeType = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) throw new Error("Audio extraction is unavailable in this client version.");
+    recorder = new MediaRecorder(new MediaStream(tracks), { mimeType });
+    const chunks = [];
+    return await new Promise((resolve, reject) => {
+      const clean = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", aborted);
+        video.removeEventListener("ended", ended);
+        video.removeEventListener("timeupdate", progress);
+        video.removeEventListener("error", failed);
+        recorder.onstop = recorder.onerror = recorder.ondataavailable = null;
+      };
+      const failed = () => {
+        clean();
+        reject(new Error("Could not extract this video's audio."));
+      };
+      const aborted = () => {
+        clean();
+        reject(signal.reason);
+      };
+      const ended = () => {
+        if (recorder.state !== "inactive") recorder.stop();
+      };
+      const progress = () => status(`Extracting audio \xB7 ${Math.min(100, Math.floor(video.currentTime / video.duration * 100))}% (plays through once)`);
+      const timer = setTimeout(failed, Math.ceil(video.duration * 1e3) + 3e4);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onerror = failed;
+      recorder.onstop = () => {
+        const audio = new Blob(chunks, { type: mimeType });
+        clean();
+        if (audio.size) resolve(audio);
+        else reject(new Error("The video's audio track was empty."));
+      };
+      signal?.addEventListener("abort", aborted, { once: true });
+      video.addEventListener("ended", ended, { once: true });
+      video.addEventListener("timeupdate", progress);
+      video.addEventListener("error", failed, { once: true });
+      try {
+        signal?.throwIfAborted();
+        recorder.start();
+      } catch (error) {
+        clean();
+        reject(error);
+      }
+    });
+  } finally {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    stream?.getTracks().forEach((track) => track.stop());
+    dispose();
+  }
+}
+
+// src/media-source.js
+var MEDIA_EXTENSIONS = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "audio/mpeg": ".mp3",
+  "audio/ogg": ".ogg",
+  "audio/mp4": ".m4a",
+  "audio/wav": ".wav"
+};
+function mediaKind(file) {
+  const type = file.type ?? "";
+  if (type.startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(file.name)) return "image";
+  if (type.startsWith("video/") || /\.(?:avi|m4v|mkv|mov|mp4|webm)$/i.test(file.name)) return "video";
+  if (type.startsWith("audio/") || /\.(?:aac|flac|m4a|mp3|ogg|opus|wav)$/i.test(file.name)) return "audio";
+  return null;
+}
+function mediaTypeAllowed(type) {
+  return !type || type === "application/octet-stream" || /^(image|video|audio)\//.test(type);
+}
+function mediaFilename(filename, type) {
+  let name = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 180) || `reaction-${Date.now()}`;
+  if (!mediaKind({ name }) && MEDIA_EXTENSIONS[type]) name += MEDIA_EXTENSIONS[type];
+  return name;
+}
+function attachmentKey(value) {
+  try {
+    const path = new URL(value).pathname;
+    const match = path.match(/\/attachments\/\d+\/(\d+)\//);
+    return match?.[1] ?? path;
+  } catch {
+    return "";
+  }
+}
+function contextMedia(navId, props, baseHref) {
+  if (!props || navId === "image-context" && "href" in props && !props.src) return null;
+  const media = props.target?.closest?.("img,video,audio");
+  const candidates = [props.itemSrc, props.src, props.itemHref, props.href, media?.currentSrc, media?.src];
+  const candidate = candidates.find((value) => typeof value === "string" && mediaKind({ name: value.split("?")[0] })) ?? (media && candidates.find((value) => typeof value === "string"));
+  if (!candidate) return null;
+  let url;
+  try {
+    url = new URL(candidate, baseHref);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "blob:") return null;
+  let filename;
+  try {
+    filename = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+  } catch {
+    filename = url.pathname.split("/").pop() ?? "";
+  }
+  filename = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_");
+  const key = attachmentKey(candidate);
+  const attachment = props.message?.attachments?.find((item) => [item.url, item.proxy_url].some((value) => value && attachmentKey(value) === key));
+  const name = attachment?.filename ?? filename;
+  if (!mediaKind({ name }) && !media) return null;
+  const urls = [...new Set([attachment?.url, attachment?.proxy_url, url.href].filter((value) => typeof value === "string"))];
+  return { urls, name };
+}
+async function firstDownload(urls, download) {
+  let lastError;
+  for (const url of urls) {
+    try {
+      return await download(url);
+    } catch (error) {
+      if (/too large|not supported|default save folder/i.test(error.message)) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error("This media could not be downloaded.");
+}
+
+// src/voice-codec.js
+function waveform(samples, duration) {
+  const bins = new Uint8Array(Math.min(256, Math.max(32, Math.ceil(duration * 10))));
+  for (let i = 0; i < bins.length; i++) {
+    const start = Math.floor(i * samples.length / bins.length);
+    const end = Math.floor((i + 1) * samples.length / bins.length);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += samples[j] ** 2;
+    bins[i] = Math.min(255, Math.round(Math.sqrt(sum / Math.max(1, end - start)) * 255));
+  }
+  return btoa(String.fromCharCode(...bins));
+}
+function oggPage(packet, sequence, granule, flags, serial) {
+  const segments = Math.floor(packet.length / 255) + 1;
+  if (segments > 255) throw new Error("Audio packet is too large.");
+  const page = new Uint8Array(27 + segments + packet.length);
+  const view = new DataView(page.buffer);
+  page.set(new TextEncoder().encode("OggS"));
+  page[5] = flags;
+  view.setBigUint64(6, BigInt(granule), true);
+  view.setUint32(14, serial, true);
+  view.setUint32(18, sequence, true);
+  page[26] = segments;
+  for (let i = 0; i < segments; i++) page[27 + i] = Math.min(255, packet.length - i * 255);
+  page.set(packet, 27 + segments);
+  let crc = 0;
+  for (const byte of page) {
+    crc ^= byte << 24;
+    for (let i = 0; i < 8; i++) crc = crc << 1 ^ (crc & 2147483648 ? 79764919 : 0);
+  }
+  view.setUint32(22, crc >>> 0, true);
+  return page;
+}
+async function prepareVoice(blob, video = false, signal, clip, { status, extractVideoAudio: extractVideoAudio2 }) {
+  const context = new AudioContext();
+  let decoded;
+  try {
+    try {
+      decoded = await context.decodeAudioData(await blob.arrayBuffer());
+    } catch (error) {
+      if (!video) throw error;
+      status("Extracting the video's audio in memory\u2026");
+      const audio = await extractVideoAudio2(blob, signal);
+      decoded = await context.decodeAudioData(await audio.arrayBuffer());
+    }
+  } finally {
+    await context.close();
+  }
+  const start = clip?.start ?? 0;
+  const end = clip ? Math.min(clip.end, decoded.duration) : decoded.duration;
+  const duration = end - start;
+  signal?.throwIfAborted();
+  if (!Number.isFinite(duration) || duration <= 0 || start < 0 || clip && clip.end - start < 0.1) throw new Error("This audio file is empty or could not be decoded.");
+  const offline = new OfflineAudioContext(1, Math.ceil(duration * 48e3), 48e3);
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start(0, start, duration);
+  const samples = (await offline.startRendering()).getChannelData(0);
+  const wave = waveform(samples, duration);
+  const headerBytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
+  const signature = new TextDecoder().decode(headerBytes);
+  if (!clip && signature.startsWith("OggS") && signature.includes("OpusHead")) return { blob, duration, waveform: wave };
+  if (!globalThis.AudioEncoder || !globalThis.AudioData) throw new Error("Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.");
+  const config = { codec: "opus", sampleRate: 48e3, numberOfChannels: 1, bitrate: 32e3, opus: { frameDuration: 2e4 } };
+  if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error("This client version cannot encode voice messages. Send the original file instead.");
+  const packets = [];
+  let header;
+  let encodingError;
+  const encoder = new AudioEncoder({
+    output(chunk, metadata) {
+      const packet = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(packet);
+      packets.push(packet);
+      if (metadata?.decoderConfig?.description) header = new Uint8Array(metadata.decoderConfig.description).slice();
+    },
+    error: (error) => {
+      encodingError = error;
+    }
+  });
+  try {
+    encoder.configure(config);
+    for (let offset = 0; offset < samples.length; offset += 960) {
+      signal?.throwIfAborted();
+      const data = new Float32Array(960);
+      data.set(samples.subarray(offset, offset + 960));
+      const frame = new AudioData({ format: "f32", sampleRate: 48e3, numberOfFrames: 960, numberOfChannels: 1, timestamp: Math.round(offset / 48e3 * 1e6), data });
+      try {
+        encoder.encode(frame);
+      } finally {
+        frame.close();
+      }
+      while (encoder.encodeQueueSize > 50 && !encodingError) await new Promise((resolve) => setTimeout(resolve, 0));
+      if (encodingError) throw encodingError;
+    }
+    await encoder.flush();
+    if (encodingError) throw encodingError;
+  } finally {
+    if (encoder.state !== "closed") encoder.close();
+  }
+  if (!packets.length) throw new Error("Voice conversion produced no audio.");
+  if (!header || new TextDecoder().decode(header.subarray(0, 8)) !== "OpusHead") {
+    header = new Uint8Array(19);
+    header.set(new TextEncoder().encode("OpusHead"));
+    header[8] = 1;
+    header[9] = 1;
+    const view = new DataView(header.buffer);
+    view.setUint16(10, 312, true);
+    view.setUint32(12, 48e3, true);
+  }
+  const preskip = new DataView(header.buffer, header.byteOffset, header.byteLength).getUint16(10, true);
+  const tags = new Uint8Array(16);
+  tags.set(new TextEncoder().encode("OpusTags"));
+  const serial = crypto.getRandomValues(new Uint32Array(1))[0];
+  const pages = [oggPage(header, 0, 0, 2, serial), oggPage(tags, 1, 0, 0, serial)];
+  packets.forEach((packet, i) => pages.push(oggPage(packet, i + 2, i === packets.length - 1 ? Math.min((i + 1) * 960, samples.length + preskip) : (i + 1) * 960, i === packets.length - 1 ? 4 : 0, serial)));
+  return { blob: new Blob(pages, { type: "audio/ogg; codecs=opus" }), duration, waveform: wave };
+}
+
+// src/reaction-library.js
 function createReactionLibrary(host, options = {}) {
   const NAME = "Reaction Library";
   const KEY = "index";
@@ -994,154 +1624,17 @@ function createReactionLibrary(host, options = {}) {
   function vencord() {
     return host ?? globalThis.Vencord;
   }
-  const portuguese = {
-    "Reaction Library": "Biblioteca de rea\xE7\xF5es",
-    "Loading your library\u2026": "Carregando sua biblioteca\u2026",
-    "Scanning folder": "Verificando pasta",
-    "files found": "arquivos encontrados",
-    "Indexing": "Indexando",
-    "Import stopped": "Importa\xE7\xE3o interrompida",
-    "Import complete": "Importa\xE7\xE3o conclu\xEDda",
-    "referenced": "referenciados",
-    "skipped": "ignorados",
-    "failed": "com falha",
-    "Folder import progress": "Progresso da importa\xE7\xE3o da pasta",
-    "Previously indexed items are still available.": "Os itens j\xE1 indexados continuam dispon\xEDveis.",
-    "The client mod is not ready yet. Try opening the library again.": "O mod do cliente ainda n\xE3o est\xE1 pronto. Tente abrir a biblioteca novamente.",
-    "The client mod is not ready yet.": "O mod do cliente ainda n\xE3o est\xE1 pronto.",
-    "This client version does not support persistent folder references. No files were copied.": "Esta vers\xE3o do cliente n\xE3o oferece refer\xEAncias permanentes a pastas. Nenhum arquivo foi copiado.",
-    "Storage write failed.": "Falha ao salvar os dados.",
-    "Open a chat before sending a reaction.": "Abra uma conversa antes de enviar uma rea\xE7\xE3o.",
-    "Preparing clip\u2026": "Preparando trecho\u2026",
-    "Choose audio or video to send as a voice message.": "Escolha um \xE1udio ou v\xEDdeo para enviar como mensagem de voz.",
-    "You cannot send voice messages in this channel.": "Voc\xEA n\xE3o pode enviar mensagens de voz neste canal.",
-    "Preparing voice message\u2026": "Preparando mensagem de voz\u2026",
-    "Uploading voice message\u2026": "Enviando mensagem de voz\u2026",
-    "Choose a video to send as a GIF.": "Escolha um v\xEDdeo para enviar como GIF.",
-    "Uploading GIF\u2026": "Enviando GIF\u2026",
-    "The upload was not accepted.": "O envio do arquivo n\xE3o foi aceito.",
-    "Conversion cancelled.": "Convers\xE3o cancelada.",
-    "Could not send this reaction.": "N\xE3o foi poss\xEDvel enviar esta rea\xE7\xE3o.",
-    "Only audio and video can be clipped.": "Somente \xE1udios e v\xEDdeos podem ser recortados.",
-    "Clip recording is unavailable in this client version.": "A grava\xE7\xE3o de trechos n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente.",
-    "Choose a valid clip start and end time.": "Escolha hor\xE1rios v\xE1lidos para o in\xEDcio e o fim do trecho.",
-    "Clip recording is unavailable for this format in this client.": "N\xE3o \xE9 poss\xEDvel gravar trechos deste formato neste cliente.",
-    "This client cannot encode a clip of this type.": "Este cliente n\xE3o consegue codificar um trecho deste tipo.",
-    "Could not record this clip.": "N\xE3o foi poss\xEDvel gravar este trecho.",
-    "The recorded clip was empty.": "O trecho gravado est\xE1 vazio.",
-    "Your client cannot play this file's format. You can still send the original file.": "Seu cliente n\xE3o consegue reproduzir este formato. Voc\xEA ainda pode enviar o arquivo original.",
-    "Send file": "Enviar arquivo",
-    "Send as spoiler": "Enviar como spoiler",
-    "Send as voice": "Enviar como voz",
-    "Send as GIF": "Enviar como GIF",
-    "Close preview": "Fechar pr\xE9via",
-    "The preview could not seek to the clip start. Try playing again.": "A pr\xE9via n\xE3o conseguiu ir ao in\xEDcio do trecho. Tente reproduzir novamente.",
-    "Clip start": "In\xEDcio do trecho",
-    "Clip end": "Fim do trecho",
-    "Send clip": "Enviar trecho",
-    "Send clip as spoiler": "Enviar trecho como spoiler",
-    "Send clip as voice": "Enviar trecho como voz",
-    "Your client could not decode this video. You can send the original file instead.": "Seu cliente n\xE3o conseguiu decodificar este v\xEDdeo. Voc\xEA pode enviar o arquivo original.",
-    "Video decoding timed out. Try sending the original file.": "A decodifica\xE7\xE3o do v\xEDdeo demorou demais. Tente enviar o arquivo original.",
-    "The video has no readable frames or duration.": "O v\xEDdeo n\xE3o tem quadros ou dura\xE7\xE3o leg\xEDveis.",
-    "GIF conversion is unavailable in this client version.": "A convers\xE3o para GIF n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente.",
-    "This GIF is too large to prepare in memory. Try a shorter video or send the original file.": "Este GIF \xE9 grande demais para preparar na mem\xF3ria. Tente um v\xEDdeo mais curto ou envie o arquivo original.",
-    "This client version cannot extract this video's audio. Try a browser-supported video format.": "Esta vers\xE3o do cliente n\xE3o consegue extrair o \xE1udio do v\xEDdeo. Tente um formato de v\xEDdeo compat\xEDvel.",
-    "No supported audio track was found in this video.": "Nenhuma faixa de \xE1udio compat\xEDvel foi encontrada neste v\xEDdeo.",
-    "Audio extraction is unavailable in this client version.": "A extra\xE7\xE3o de \xE1udio n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente.",
-    "Could not extract this video's audio.": "N\xE3o foi poss\xEDvel extrair o \xE1udio deste v\xEDdeo.",
-    "The video's audio track was empty.": "A faixa de \xE1udio do v\xEDdeo est\xE1 vazia.",
-    "Audio packet is too large.": "O pacote de \xE1udio \xE9 grande demais.",
-    "Extracting the video's audio in memory\u2026": "Extraindo o \xE1udio do v\xEDdeo na mem\xF3ria\u2026",
-    "This audio file is empty or could not be decoded.": "Este \xE1udio est\xE1 vazio ou n\xE3o p\xF4de ser decodificado.",
-    "Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.": "A convers\xE3o para mensagem de voz n\xE3o est\xE1 dispon\xEDvel nesta vers\xE3o do cliente. Envie como arquivo ou use \xE1udio OGG Opus.",
-    "This client version cannot encode voice messages. Send the original file instead.": "Esta vers\xE3o do cliente n\xE3o consegue codificar mensagens de voz. Envie o arquivo original.",
-    "Voice conversion produced no audio.": "A convers\xE3o para mensagem de voz n\xE3o produziu \xE1udio.",
-    "Voice message upload failed.": "Falha ao enviar a mensagem de voz.",
-    "Restore folder access below to load your thumbnails. Your file references are still saved.": "Restaure o acesso \xE0 pasta abaixo para carregar as miniaturas. As refer\xEAncias aos arquivos continuam salvas.",
-    "Desktop file access is unavailable. Restart your client to load the plugin's native helper.": "O acesso a arquivos locais n\xE3o est\xE1 dispon\xEDvel. Reinicie o cliente para carregar o componente nativo do plugin.",
-    "This file is missing. Add its folder again to reconnect it.": "Este arquivo n\xE3o foi encontrado. Adicione a pasta novamente para reconect\xE1-lo.",
-    "Folder access needs to be renewed after restarting your client. Your library and tags are still saved.": "O acesso \xE0s pastas precisa ser renovado ap\xF3s reiniciar o cliente. Sua biblioteca e etiquetas continuam salvas.",
-    "Select folder again": "Selecionar pasta novamente",
-    "Restore access": "Restaurar acesso",
-    "Select": "Selecionar",
-    "Restore access to": "Restaurar acesso a",
-    "Select a referenced folder first, or use Add folder to reconnect it.": "Selecione uma pasta referenciada ou use Adicionar pasta para reconect\xE1-la.",
-    "Folder access was not granted. Your references and tags are unchanged.": "O acesso \xE0 pasta n\xE3o foi concedido. Suas refer\xEAncias e etiquetas n\xE3o foram alteradas.",
-    "All folders": "Todas as pastas",
-    "No reactions match your search.": "Nenhuma rea\xE7\xE3o corresponde \xE0 busca.",
-    "Choose a folder to start your reaction library.": "Escolha uma pasta para come\xE7ar sua biblioteca de rea\xE7\xF5es.",
-    "Preview and trim": "Pr\xE9via e recorte",
-    "Save": "Salvar",
-    "Add tags": "Adicionar etiquetas",
-    "Remove": "Remover",
-    "Tags, separated by commas": "Etiquetas, separadas por v\xEDrgulas",
-    "Drag the upper-left corner to resize. Arrow keys also work.": "Arraste o canto superior esquerdo para redimensionar. As setas do teclado tamb\xE9m funcionam.",
-    "Resize library": "Redimensionar biblioteca",
-    "Cancel conversion": "Cancelar convers\xE3o",
-    "Search names, folders, and tags": "Buscar nomes, pastas e etiquetas",
-    "Search reactions": "Buscar rea\xE7\xF5es",
-    "Type": "Tipo",
-    "All types": "Todos os tipos",
-    "Images and GIFs": "Imagens e GIFs",
-    "Videos": "V\xEDdeos",
-    "Audio": "\xC1udio",
-    "Sort": "Ordenar",
-    "Newest": "Mais recentes",
-    "Oldest": "Mais antigos",
-    "Name": "Nome",
-    "Add folder": "Adicionar pasta",
-    "Set save folder": "Definir pasta para salvar",
-    "Save folder": "Pasta para salvar",
-    "No save folder selected": "Nenhuma pasta para salvar selecionada",
-    "Add to reaction library": "Adicionar \xE0 biblioteca de rea\xE7\xF5es",
-    "Choose a default save folder in Reaction Library first.": "Escolha primeiro uma pasta padr\xE3o para salvar na Biblioteca de rea\xE7\xF5es.",
-    "This media could not be downloaded.": "N\xE3o foi poss\xEDvel baixar esta m\xEDdia.",
-    "This media is too large to save (256 MiB limit).": "Esta m\xEDdia \xE9 grande demais para salvar (limite de 256 MiB).",
-    "The selected file is not supported media.": "O arquivo selecionado n\xE3o \xE9 uma m\xEDdia compat\xEDvel.",
-    "Save folder access expired. Set the save folder again in Reaction Library.": "O acesso \xE0 pasta para salvar expirou. Defina a pasta novamente na Biblioteca de rea\xE7\xF5es.",
-    "The save folder is unavailable. Open Reaction Library and set the save folder again.": "A pasta para salvar n\xE3o est\xE1 dispon\xEDvel. Abra a Biblioteca de rea\xE7\xF5es e defina a pasta novamente.",
-    "Library folder": "Pasta da biblioteca",
-    "Reconnect": "Reconectar",
-    "Remove folder": "Remover pasta",
-    "Restore folder access to load its thumbnail": "Restaure o acesso \xE0 pasta para carregar a miniatura",
-    "Options for": "Op\xE7\xF5es para",
-    "Preview": "Pr\xE9via",
-    "Send": "Enviar",
-    "Remove from library": "Remover da biblioteca"
-  };
   function locale() {
     return vencord()?.Webpack?.Common?.LocaleStore?.locale ?? document.documentElement?.lang ?? "en-US";
   }
   function t(message) {
-    if (!/^pt(?:-|$)/i.test(locale()) || typeof message !== "string") return message;
-    const direct = portuguese[message];
-    if (direct) return direct;
-    return message.replace(/\b(?:Sending|Sent|Removed|Recording clip|Converting GIF|Extracting audio|Show more|Folder|Access to)\b[^]*$/, (value) => {
-      let match;
-      if (match = /^Sending (.+)…$/.exec(value)) return `Enviando ${match[1]}\u2026`;
-      if (match = /^Sent (.+)\.$/.exec(value)) return `${match[1]} enviado.`;
-      if (match = /^Removed (.+) old stored copies\. File references were preserved\.$/.exec(value)) return `${match[1]} c\xF3pias antigas removidas. As refer\xEAncias aos arquivos foram preservadas.`;
-      if (match = /^Recording clip · (.+)$/.exec(value)) return `Gravando trecho \xB7 ${match[1]}`;
-      if (match = /^Converting GIF · frame (.+)$/.exec(value)) return `Convertendo GIF \xB7 quadro ${match[1]}`;
-      if (match = /^Extracting audio · (.+) \(plays through once\)$/.exec(value)) return `Extraindo \xE1udio \xB7 ${match[1]} (reproduz uma vez)`;
-      if (match = /^Show more \((.+)\)$/.exec(value)) return `Mostrar mais (${match[1]})`;
-      if (match = /^Folder (.+) reconnected\.$/.exec(value)) return `Pasta ${match[1]} reconectada.`;
-      if (match = /^Access to (.+) restored\. Thumbnails are loading\.$/.exec(value)) return `Acesso a ${match[1]} restaurado. As miniaturas est\xE3o carregando.`;
-      return value;
-    });
+    return translate(message, locale());
   }
   function dataStore() {
     const api = vencord()?.Api?.DataStore;
     if (!api) throw new Error("The client mod is not ready yet. Try opening the library again.");
     store ??= api.createStore("ReactionLibrary", "files");
     return { api, store };
-  }
-  function mediaKind(file) {
-    if (file.type.startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(file.name)) return "image";
-    if (file.type.startsWith("video/") || /\.(?:avi|m4v|mkv|mov|mp4|webm)$/i.test(file.name)) return "video";
-    if (file.type.startsWith("audio/") || /\.(?:aac|flac|m4a|mp3|ogg|opus|wav)$/i.test(file.name)) return "audio";
-    return null;
   }
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -1305,7 +1798,7 @@ function createReactionLibrary(host, options = {}) {
       const { api, store: store2 } = dataStore();
       const saved = await api.get("folders", store2) ?? [];
       const handle = native?.pickSaveFolder ? { kind: "native-directory", root: selected.root } : selected;
-      let name = selected.name;
+      let { name } = selected;
       let suffix = 2;
       while (saved.some((folder2) => folder2.name === name && (handle.root ? folder2.handle.root !== handle.root : folder2.handle !== handle))) name = `${selected.name} (${suffix++})`;
       const folder = { name, handle };
@@ -1321,42 +1814,48 @@ function createReactionLibrary(host, options = {}) {
       status(error.message);
     }
   }
-  function contextMedia(navId, props) {
-    if (!props || navId === "image-context" && "href" in props && !props.src) return null;
-    const target = props.target;
-    const media = target?.closest?.("img,video,audio");
-    const candidates = [props.itemSrc, props.src, props.itemHref, props.href, media?.currentSrc, media?.src];
-    const candidate = candidates.find((value) => typeof value === "string" && mediaKind({ name: value.split("?")[0], type: "" })) ?? (media && candidates.find((value) => typeof value === "string"));
-    if (!candidate) return null;
-    let url;
-    try {
-      url = new URL(candidate, location.href);
-    } catch {
-      return null;
+  async function downloadBlob(url, limit, nativeFetch) {
+    if (nativeFetch?.fetchFile && url.startsWith("https:")) {
+      const result = await nativeFetch.fetchFile(url);
+      if (!result?.success || !result.data) throw new Error(result?.error || "This media could not be downloaded.");
+      return new Blob([result.data], { type: result.contentType ?? "" });
     }
-    if (url.protocol !== "https:" && url.protocol !== "blob:") return null;
-    let filename;
+    const response = await fetch(url, { credentials: "omit" });
+    if (!response.ok) throw new Error("This media could not be downloaded.");
+    if (Number(response.headers.get("content-length")) > limit) throw new Error("This media is too large to save (256 MiB limit).");
+    return response.blob();
+  }
+  async function saveBrowserFile(folder, blob, name) {
+    const extension = name.match(/\.[^.]+$/)?.[0] ?? "";
+    const stem = name.slice(0, name.length - extension.length);
     try {
-      filename = decodeURIComponent(url.pathname.split("/").pop() ?? "");
-    } catch {
-      filename = url.pathname.split("/").pop() ?? "";
-    }
-    filename = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_");
-    const attachmentKey = (value) => {
-      try {
-        const path = new URL(value).pathname;
-        const match = path.match(/\/attachments\/\d+\/(\d+)\//);
-        return match?.[1] ?? path;
-      } catch {
-        return "";
+      for (let number = 1; number <= 1e4; number++) {
+        const candidate = number === 1 ? name : `${stem} (${number})${extension}`;
+        let exists = false;
+        try {
+          await folder.handle.getFileHandle(candidate);
+          exists = true;
+        } catch (error) {
+          if (error.name !== "NotFoundError") throw error;
+        }
+        if (exists) continue;
+        const handle = await folder.handle.getFileHandle(candidate, { create: true });
+        const writer = await handle.createWritable();
+        try {
+          await writer.write(blob);
+          await writer.close();
+        } catch (error) {
+          await writer.abort().catch(() => {
+          });
+          throw error;
+        }
+        return { name: candidate, relative: candidate, handle };
       }
-    };
-    const key = attachmentKey(candidate);
-    const attachment = props.message?.attachments?.find((item) => [item.url, item.proxy_url].some((value) => value && attachmentKey(value) === key));
-    const name = attachment?.filename ?? filename;
-    if (!mediaKind({ name, type: "" }) && !media) return null;
-    const urls = [...new Set([attachment?.url, attachment?.proxy_url, url.href].filter((value) => typeof value === "string"))];
-    return { urls, name };
+    } catch (error) {
+      if (error.name === "NotFoundError") throw new Error("The save folder is unavailable. Open Reaction Library and set the save folder again.");
+      throw error;
+    }
+    throw new Error("Could not find an available filename in the save folder.");
   }
   async function saveContextMedia(source) {
     const { api, store: store2 } = dataStore();
@@ -1373,91 +1872,29 @@ function createReactionLibrary(host, options = {}) {
       }
       if (permission !== "granted") throw new Error("Save folder access expired. Set the save folder again in Reaction Library.");
     }
+    const urls = source.urls ?? [source.url];
     let saved;
     let kind;
-    const urls = source.urls ?? [source.url];
     if (native?.downloadMedia && urls.some((url) => url.startsWith("https:"))) {
-      let lastError;
-      for (const url of urls.filter((url2) => url2.startsWith("https:"))) {
-        try {
-          saved = await native.downloadMedia(folder.handle.root, url, source.name);
-          break;
-        } catch (error) {
-          if (/too large|not supported|default save folder/i.test(error.message)) throw error;
-          lastError = error;
-        }
-      }
-      if (!saved) throw lastError;
+      saved = await firstDownload(urls.filter((url) => url.startsWith("https:")), (url) => native.downloadMedia(folder.handle.root, url, source.name));
       kind = mediaKind({ name: saved.name, type: saved.type });
       if (!kind) throw new Error("The selected file is not supported media.");
       saved.handle = { kind: "native-file", root: folder.handle.root, relative: saved.relative };
     } else {
       const limit = 256 * 1024 * 1024;
       const nativeFetch = globalThis.VencordNative?.pluginHelpers?.FileUpload;
-      let blob;
-      let lastError;
-      for (const url of urls) {
-        try {
-          if (nativeFetch?.fetchFile && url.startsWith("https:")) {
-            const result = await nativeFetch.fetchFile(url);
-            if (!result?.success || !result.data) throw new Error(result?.error || "This media could not be downloaded.");
-            blob = new Blob([result.data], { type: result.contentType ?? "" });
-          } else {
-            const response = await fetch(url, { credentials: "omit" });
-            if (!response.ok) throw new Error("This media could not be downloaded.");
-            if (Number(response.headers.get("content-length")) > limit) throw new Error("This media is too large to save (256 MiB limit).");
-            blob = await response.blob();
-          }
-          break;
-        } catch (error) {
-          if (/too large|not supported/i.test(error.message)) throw error;
-          lastError = error;
-        }
-      }
-      if (!blob) throw lastError;
+      const blob = await firstDownload(urls, (url) => downloadBlob(url, limit, nativeFetch));
       if (!blob.size || blob.size > limit) throw new Error(blob.size ? "This media is too large to save (256 MiB limit)." : "This media could not be downloaded.");
       const type = blob.type.split(";")[0];
-      if (type && type !== "application/octet-stream" && !/^(image|video|audio)\//.test(type)) throw new Error("The selected file is not supported media.");
-      const extensions = { "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4", "video/webm": ".webm", "audio/mpeg": ".mp3", "audio/ogg": ".ogg", "audio/mp4": ".m4a", "audio/wav": ".wav" };
-      let name = source.name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 180) || `reaction-${Date.now()}`;
-      if (!mediaKind({ name, type: "" }) && extensions[type]) name += extensions[type];
+      if (!mediaTypeAllowed(type)) throw new Error("The selected file is not supported media.");
+      const name = mediaFilename(source.name, type);
       kind = mediaKind({ name, type });
       if (!kind) throw new Error("The selected file is not supported media.");
       if (native?.saveMedia) {
         saved = await native.saveMedia(folder.handle.root, name, new Uint8Array(await blob.arrayBuffer()));
         saved.handle = { kind: "native-file", root: folder.handle.root, relative: saved.relative };
       } else {
-        const extension = name.match(/\.[^.]+$/)?.[0] ?? "";
-        const stem = name.slice(0, name.length - extension.length);
-        try {
-          for (let number = 1; number <= 1e4; number++) {
-            const candidate = number === 1 ? name : `${stem} (${number})${extension}`;
-            let exists = false;
-            try {
-              await folder.handle.getFileHandle(candidate);
-              exists = true;
-            } catch (error) {
-              if (error.name !== "NotFoundError") throw error;
-            }
-            if (exists) continue;
-            const handle = await folder.handle.getFileHandle(candidate, { create: true });
-            const writer = await handle.createWritable();
-            try {
-              await writer.write(blob);
-              await writer.close();
-            } catch (error) {
-              await writer.abort().catch(() => {
-              });
-              throw error;
-            }
-            saved = { name: candidate, relative: candidate, handle };
-            break;
-          }
-        } catch (error) {
-          if (error.name === "NotFoundError") throw new Error("The save folder is unavailable. Open Reaction Library and set the save folder again.");
-          throw error;
-        }
-        if (!saved) throw new Error("Could not find an available filename in the save folder.");
+        saved = await saveBrowserFile(folder, blob, name);
       }
     }
     const latest = await api.get(KEY, store2) ?? [];
@@ -1486,7 +1923,7 @@ function createReactionLibrary(host, options = {}) {
     if (!api?.addContextMenuPatch || !common?.Menu?.MenuItem || !common?.React?.createElement) return;
     for (const navId of ["message", "image-context"]) {
       const patch = (children, props) => {
-        const source = contextMedia(navId, props);
+        const source = contextMedia(navId, props, location.href);
         if (!source) return;
         children.push(common.React.createElement(common.Menu.MenuItem, {
           id: "reaction-library-add-media",
@@ -1598,14 +2035,14 @@ function createReactionLibrary(host, options = {}) {
       signal?.throwIfAborted();
       if (options2.clip && !voice) {
         status("Preparing clip\u2026");
-        blob = await prepareClip(blob, entry.kind, options2.clip, signal);
+        blob = await prepareClip(blob, entry.kind, options2.clip, signal, status);
         signal?.throwIfAborted();
       }
       if (voice) {
         if (entry.kind !== "audio" && entry.kind !== "video") throw new Error("Choose audio or video to send as a voice message.");
         if (channel.guild_id && (!common.PermissionStore.can(common.PermissionsBits.SEND_VOICE_MESSAGES, channel) || !common.PermissionStore.can(common.PermissionsBits.SEND_MESSAGES, channel))) throw new Error("You cannot send voice messages in this channel.");
         status("Preparing voice message\u2026");
-        const prepared = await prepareVoice(blob, entry.kind === "video", signal, options2.clip);
+        const prepared = await prepareVoice(blob, entry.kind === "video", signal, options2.clip, { status, extractVideoAudio: (media, abort) => extractVideoAudio(media, abort, status) });
         signal.throwIfAborted();
         conversion = void 0;
         status("Uploading voice message\u2026");
@@ -1615,7 +2052,7 @@ function createReactionLibrary(host, options = {}) {
       }
       if (format === "gif") {
         if (entry.kind !== "video") throw new Error("Choose a video to send as a GIF.");
-        blob = await prepareGif(blob, signal);
+        blob = await prepareGif(blob, signal, status);
         signal.throwIfAborted();
         conversion = void 0;
         status("Uploading GIF\u2026");
@@ -1623,20 +2060,7 @@ function createReactionLibrary(host, options = {}) {
       const baseName = format === "gif" ? entry.name.replace(/\.[^.]+$/, "") + ".gif" : options2.clip ? entry.name.replace(/\.[^.]+$/, "") + "-clip.webm" : entry.name;
       const filename = options2.spoiler ? `SPOILER_${baseName}` : baseName;
       const file = new File([blob], filename, { type: blob.type });
-      const draftType = common.DraftType.ChannelMessage;
-      await common.UploadHandler.promptToUpload([file], channel, draftType);
-      const uploads = [...common.UploadAttachmentStore.getUploads(channelId, draftType)];
-      const index = uploads.findIndex((upload2) => upload2.item.file === file);
-      if (index < 0) throw new Error("The upload was not accepted.");
-      const [upload] = uploads.splice(index, 1);
-      if (options2.spoiler) upload.item.isSpoiler = true;
-      common.UploadManager.setUploads({ uploads, channelId, draftType });
-      const reply = common.PendingReplyStore.getPendingReply(channelId);
-      common.FluxDispatcher.dispatch({ type: "DELETE_PENDING_REPLY", channelId });
-      await vc.Util.sendMessage(channelId, {}, false, {
-        ...common.MessageActions.getSendMessageOptionsForReply(reply),
-        attachmentsToUpload: [upload]
-      });
+      await uploadFile(vc, common, channelId, channel, file, options2.spoiler);
       finishSend(entry, initialRoot);
     } catch (error) {
       const message = signal?.aborted ? "Conversion cancelled." : error instanceof Error ? error.message : "Could not send this reaction.";
@@ -1652,99 +2076,6 @@ function createReactionLibrary(host, options = {}) {
     status(`Sent ${entry.name}.`);
     if (root && root === initialRoot) close();
     else vencord()?.Webpack?.Common?.showToast?.({ text: t(`Sent ${entry.name}.`), variant: "success" });
-  }
-  async function prepareClip(blob, kind, clip, signal) {
-    if (kind !== "audio" && kind !== "video") throw new Error("Only audio and video can be clipped.");
-    if (!globalThis.MediaRecorder) throw new Error("Clip recording is unavailable in this client version.");
-    const media = element(kind);
-    const url = URL.createObjectURL(blob);
-    let stream;
-    let recorder;
-    media.preload = "auto";
-    media.playsInline = true;
-    media.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;pointer-events:none";
-    document.body.append(media);
-    try {
-      await waitForMedia(media, "loadedmetadata", signal, () => {
-        media.src = url;
-        media.load();
-      });
-      const { start: start2, end } = clip;
-      if (!Number.isFinite(media.duration) || !Number.isFinite(start2) || !Number.isFinite(end) || start2 < 0 || end > media.duration || end - start2 < 0.1) throw new Error("Choose a valid clip start and end time.");
-      if (start2) await waitForMedia(media, "seeked", signal, () => {
-        media.currentTime = start2;
-      });
-      if (!media.captureStream) throw new Error("Clip recording is unavailable for this format in this client.");
-      await media.play();
-      signal?.throwIfAborted();
-      stream = media.captureStream();
-      if (!stream.getTracks().some((track) => track.readyState === "live")) throw new Error("Clip recording is unavailable for this format in this client.");
-      media.pause();
-      if (Math.abs(media.currentTime - start2) > 5e-3) await waitForMedia(media, "seeked", signal, () => {
-        media.currentTime = start2;
-      });
-      signal?.throwIfAborted();
-      const mimeType = kind === "video" ? ["video/webm", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus"] : ["audio/webm", "audio/webm;codecs=opus"];
-      const supported = mimeType.find((type) => MediaRecorder.isTypeSupported(type));
-      if (!supported) throw new Error("This client cannot encode a clip of this type.");
-      recorder = new MediaRecorder(stream, { mimeType: supported });
-      const chunks = [];
-      return await new Promise((resolve, reject) => {
-        let settled = false;
-        const cleanup = () => {
-          clearTimeout(timer);
-          signal?.removeEventListener("abort", abort);
-          media.removeEventListener("timeupdate", progress);
-          media.removeEventListener("ended", stop2);
-        };
-        const fail = (error) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(error);
-        };
-        const stop2 = () => {
-          if (recorder.state !== "inactive") recorder.stop();
-        };
-        const abort = () => {
-          stop2();
-          fail(new Error("Conversion cancelled."));
-        };
-        const progress = () => {
-          status(`Recording clip \xB7 ${Math.min(100, Math.round((media.currentTime - start2) / (end - start2) * 100))}%`);
-          if (media.currentTime >= end) stop2();
-        };
-        const timer = setTimeout(stop2, Math.ceil((end - start2) * 1e3) + 1e3);
-        recorder.ondataavailable = (event) => {
-          if (event.data.size) chunks.push(event.data);
-        };
-        recorder.onerror = () => fail(new Error("Could not record this clip."));
-        recorder.onstop = () => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          const result = new Blob(chunks, { type: supported });
-          result.size ? resolve(result) : reject(new Error("The recorded clip was empty."));
-        };
-        signal?.addEventListener("abort", abort, { once: true });
-        media.addEventListener("timeupdate", progress);
-        media.addEventListener("ended", stop2, { once: true });
-        try {
-          recorder.start();
-          Promise.resolve(media.play()).catch(fail);
-        } catch (error) {
-          fail(error);
-        }
-      });
-    } finally {
-      media.pause();
-      if (recorder?.state !== "inactive") recorder.stop();
-      stream?.getTracks().forEach((track) => track.stop());
-      media.removeAttribute("src");
-      media.load();
-      media.remove();
-      URL.revokeObjectURL(url);
-    }
   }
   function closePlayback() {
     playbackId++;
@@ -1930,308 +2261,6 @@ function createReactionLibrary(host, options = {}) {
     } catch (error) {
       status(error.message);
     }
-  }
-  function waitForMedia(video, event, signal, action, timeout = 3e4) {
-    signal?.throwIfAborted();
-    return new Promise((resolve, reject) => {
-      const clean = () => {
-        clearTimeout(timer);
-        video.removeEventListener(event, done);
-        video.removeEventListener("error", failed);
-        signal?.removeEventListener("abort", aborted);
-      };
-      const done = () => {
-        clean();
-        resolve();
-      };
-      const failed = () => {
-        clean();
-        reject(new Error("Your client could not decode this video. You can send the original file instead."));
-      };
-      const aborted = () => {
-        clean();
-        reject(signal.reason);
-      };
-      const timer = setTimeout(() => {
-        clean();
-        reject(new Error("Video decoding timed out. Try sending the original file."));
-      }, timeout);
-      video.addEventListener(event, done, { once: true });
-      video.addEventListener("error", failed, { once: true });
-      signal?.addEventListener("abort", aborted, { once: true });
-      try {
-        action?.();
-      } catch (error) {
-        clean();
-        reject(error);
-      }
-    });
-  }
-  async function conversionVideo(blob, signal) {
-    const video = element("video");
-    const url = URL.createObjectURL(blob);
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = "auto";
-    video.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;pointer-events:none";
-    document.body.append(video);
-    const dispose = () => {
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-      video.remove();
-      URL.revokeObjectURL(url);
-    };
-    try {
-      await waitForMedia(video, "loadeddata", signal, () => {
-        video.src = url;
-        video.load();
-      });
-      if (!Number.isFinite(video.duration) || video.duration <= 0 || !video.videoWidth || !video.videoHeight) throw new Error("The video has no readable frames or duration.");
-      return { video, dispose };
-    } catch (error) {
-      dispose();
-      throw error;
-    }
-  }
-  async function prepareGif(blob, signal) {
-    const { video, dispose } = await conversionVideo(blob, signal);
-    const canvas = element("canvas");
-    try {
-      const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-      const context = canvas.getContext("2d", { willReadFrequently: true });
-      if (!context) throw new Error("GIF conversion is unavailable in this client version.");
-      const count = Math.max(1, Math.min(900, Math.ceil(video.duration * 10)));
-      const gif = (0, import_gifenc.GIFEncoder)();
-      for (let i = 0; i < count; i++) {
-        signal?.throwIfAborted();
-        const time = i * video.duration / count;
-        if (Math.abs(video.currentTime - time) > 1e-5) await waitForMedia(video, "seeked", signal, () => {
-          video.currentTime = time;
-        });
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-        const palette = (0, import_gifenc.quantize)(data, 128);
-        const pixels = (0, import_gifenc.applyPalette)(data, palette);
-        const delay = (Math.round((i + 1) * video.duration * 100 / count) - Math.round(i * video.duration * 100 / count)) * 10;
-        gif.writeFrame(pixels, canvas.width, canvas.height, { palette, delay: Math.max(10, delay), repeat: 0 });
-        if (gif.bytesView().length > 64 * 1024 * 1024) throw new Error("This GIF is too large to prepare in memory. Try a shorter video or send the original file.");
-        status(`Converting GIF \xB7 frame ${(i + 1).toLocaleString()} / ${count.toLocaleString()}`);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-      gif.finish();
-      return new Blob([gif.bytesView()], { type: "image/gif" });
-    } finally {
-      canvas.width = canvas.height = 0;
-      dispose();
-    }
-  }
-  async function extractVideoAudio(blob, signal) {
-    const { video, dispose } = await conversionVideo(blob, signal);
-    let stream;
-    let recorder;
-    try {
-      if (!video.captureStream || !globalThis.MediaRecorder) throw new Error("This client version cannot extract this video's audio. Try a browser-supported video format.");
-      await video.play();
-      signal?.throwIfAborted();
-      stream = video.captureStream();
-      const tracks = stream.getAudioTracks();
-      if (!tracks.some((track) => track.readyState === "live")) throw new Error("No supported audio track was found in this video.");
-      const mimeType = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
-      if (!mimeType) throw new Error("Audio extraction is unavailable in this client version.");
-      recorder = new MediaRecorder(new MediaStream(tracks), { mimeType });
-      const chunks = [];
-      return await new Promise((resolve, reject) => {
-        const clean = () => {
-          clearTimeout(timer);
-          signal?.removeEventListener("abort", aborted);
-          video.removeEventListener("ended", ended);
-          video.removeEventListener("timeupdate", progress);
-          video.removeEventListener("error", failed);
-          recorder.onstop = recorder.onerror = recorder.ondataavailable = null;
-        };
-        const failed = () => {
-          clean();
-          reject(new Error("Could not extract this video's audio."));
-        };
-        const aborted = () => {
-          clean();
-          reject(signal.reason);
-        };
-        const ended = () => {
-          if (recorder.state !== "inactive") recorder.stop();
-        };
-        const progress = () => status(`Extracting audio \xB7 ${Math.min(100, Math.floor(video.currentTime / video.duration * 100))}% (plays through once)`);
-        const timer = setTimeout(failed, Math.ceil(video.duration * 1e3) + 3e4);
-        recorder.ondataavailable = (event) => {
-          if (event.data.size) chunks.push(event.data);
-        };
-        recorder.onerror = failed;
-        recorder.onstop = () => {
-          const audio = new Blob(chunks, { type: mimeType });
-          clean();
-          if (audio.size) resolve(audio);
-          else reject(new Error("The video's audio track was empty."));
-        };
-        signal?.addEventListener("abort", aborted, { once: true });
-        video.addEventListener("ended", ended, { once: true });
-        video.addEventListener("timeupdate", progress);
-        video.addEventListener("error", failed, { once: true });
-        try {
-          signal?.throwIfAborted();
-          recorder.start();
-        } catch (error) {
-          clean();
-          reject(error);
-        }
-      });
-    } finally {
-      if (recorder && recorder.state !== "inactive") recorder.stop();
-      stream?.getTracks().forEach((track) => track.stop());
-      dispose();
-    }
-  }
-  function waveform(samples, duration) {
-    const bins = new Uint8Array(Math.min(256, Math.max(32, Math.ceil(duration * 10))));
-    for (let i = 0; i < bins.length; i++) {
-      const start2 = Math.floor(i * samples.length / bins.length);
-      const end = Math.floor((i + 1) * samples.length / bins.length);
-      let sum = 0;
-      for (let j = start2; j < end; j++) sum += samples[j] ** 2;
-      bins[i] = Math.min(255, Math.round(Math.sqrt(sum / Math.max(1, end - start2)) * 255));
-    }
-    return btoa(String.fromCharCode(...bins));
-  }
-  function oggPage(packet, sequence, granule, flags, serial) {
-    const segments = Math.floor(packet.length / 255) + 1;
-    if (segments > 255) throw new Error("Audio packet is too large.");
-    const page = new Uint8Array(27 + segments + packet.length);
-    const view = new DataView(page.buffer);
-    page.set(new TextEncoder().encode("OggS"));
-    page[5] = flags;
-    view.setBigUint64(6, BigInt(granule), true);
-    view.setUint32(14, serial, true);
-    view.setUint32(18, sequence, true);
-    page[26] = segments;
-    for (let i = 0; i < segments; i++) page[27 + i] = Math.min(255, packet.length - i * 255);
-    page.set(packet, 27 + segments);
-    let crc = 0;
-    for (const byte of page) {
-      crc ^= byte << 24;
-      for (let i = 0; i < 8; i++) crc = crc << 1 ^ (crc & 2147483648 ? 79764919 : 0);
-    }
-    view.setUint32(22, crc >>> 0, true);
-    return page;
-  }
-  async function prepareVoice(blob, video = false, signal, clip) {
-    const context = new AudioContext();
-    let decoded;
-    try {
-      try {
-        decoded = await context.decodeAudioData(await blob.arrayBuffer());
-      } catch (error) {
-        if (!video) throw error;
-        status("Extracting the video's audio in memory\u2026");
-        const audio = await extractVideoAudio(blob, signal);
-        decoded = await context.decodeAudioData(await audio.arrayBuffer());
-      }
-    } finally {
-      await context.close();
-    }
-    const start2 = clip?.start ?? 0;
-    const end = clip ? Math.min(clip.end, decoded.duration) : decoded.duration;
-    const duration = end - start2;
-    signal?.throwIfAborted();
-    if (!Number.isFinite(duration) || duration <= 0 || start2 < 0 || clip && clip.end - start2 < 0.1) throw new Error("This audio file is empty or could not be decoded.");
-    const offline = new OfflineAudioContext(1, Math.ceil(duration * 48e3), 48e3);
-    const source = offline.createBufferSource();
-    source.buffer = decoded;
-    source.connect(offline.destination);
-    source.start(0, start2, duration);
-    const samples = (await offline.startRendering()).getChannelData(0);
-    const wave = waveform(samples, duration);
-    const headerBytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
-    const signature = new TextDecoder().decode(headerBytes);
-    if (!clip && signature.startsWith("OggS") && signature.includes("OpusHead")) return { blob, duration, waveform: wave };
-    if (!globalThis.AudioEncoder || !globalThis.AudioData) throw new Error("Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.");
-    const config = { codec: "opus", sampleRate: 48e3, numberOfChannels: 1, bitrate: 32e3, opus: { frameDuration: 2e4 } };
-    if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error("This client version cannot encode voice messages. Send the original file instead.");
-    const packets = [];
-    let header;
-    let encodingError;
-    const encoder = new AudioEncoder({
-      output(chunk, metadata) {
-        const packet = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(packet);
-        packets.push(packet);
-        if (metadata?.decoderConfig?.description) header = new Uint8Array(metadata.decoderConfig.description).slice();
-      },
-      error: (error) => {
-        encodingError = error;
-      }
-    });
-    try {
-      encoder.configure(config);
-      for (let offset = 0; offset < samples.length; offset += 960) {
-        signal?.throwIfAborted();
-        const data = new Float32Array(960);
-        data.set(samples.subarray(offset, offset + 960));
-        const frame2 = new AudioData({ format: "f32", sampleRate: 48e3, numberOfFrames: 960, numberOfChannels: 1, timestamp: Math.round(offset / 48e3 * 1e6), data });
-        try {
-          encoder.encode(frame2);
-        } finally {
-          frame2.close();
-        }
-        while (encoder.encodeQueueSize > 50 && !encodingError) await new Promise((resolve) => setTimeout(resolve, 0));
-        if (encodingError) throw encodingError;
-      }
-      await encoder.flush();
-      if (encodingError) throw encodingError;
-    } finally {
-      if (encoder.state !== "closed") encoder.close();
-    }
-    if (!packets.length) throw new Error("Voice conversion produced no audio.");
-    if (!header || new TextDecoder().decode(header.subarray(0, 8)) !== "OpusHead") {
-      header = new Uint8Array(19);
-      header.set(new TextEncoder().encode("OpusHead"));
-      header[8] = 1;
-      header[9] = 1;
-      const view = new DataView(header.buffer);
-      view.setUint16(10, 312, true);
-      view.setUint32(12, 48e3, true);
-    }
-    const preskip = new DataView(header.buffer, header.byteOffset, header.byteLength).getUint16(10, true);
-    const tags = new Uint8Array(16);
-    tags.set(new TextEncoder().encode("OpusTags"));
-    const serial = crypto.getRandomValues(new Uint32Array(1))[0];
-    const pages = [oggPage(header, 0, 0, 2, serial), oggPage(tags, 1, 0, 0, serial)];
-    packets.forEach((packet, i) => pages.push(oggPage(packet, i + 2, i === packets.length - 1 ? Math.min((i + 1) * 960, samples.length + preskip) : (i + 1) * 960, i === packets.length - 1 ? 4 : 0, serial)));
-    return { blob: new Blob(pages, { type: "audio/ogg; codecs=opus" }), duration, waveform: wave };
-  }
-  async function uploadVoice(common, channelId, prepared) {
-    const reply = common.PendingReplyStore.getPendingReply(channelId);
-    const upload = new common.CloudUploader({ file: new File([prepared.blob], "voice-message.ogg", { type: "audio/ogg; codecs=opus" }), isThumbnail: false, platform: 1 }, channelId);
-    await new Promise((resolve, reject) => {
-      upload.on("complete", resolve);
-      upload.on("error", () => reject(new Error("Voice message upload failed.")));
-      Promise.resolve(upload.upload()).catch(reject);
-    });
-    await common.RestAPI.post({
-      url: common.Constants.Endpoints.MESSAGES(channelId),
-      body: {
-        flags: 8192,
-        channel_id: channelId,
-        content: "",
-        nonce: common.SnowflakeUtils.fromTimestamp(Date.now()),
-        sticker_ids: [],
-        type: 0,
-        attachments: [{ id: "0", filename: "voice-message.ogg", uploaded_filename: upload.uploadedFilename, waveform: prepared.waveform, duration_secs: prepared.duration }],
-        message_reference: reply ? common.MessageActions.getSendMessageOptionsForReply(reply)?.messageReference : null
-      }
-    });
-    if (reply && common.PendingReplyStore.getPendingReply(channelId) === reply) common.FluxDispatcher.dispatch({ type: "DELETE_PENDING_REPLY", channelId });
   }
   async function readMedia(entry, request = false) {
     const folderName = entry.path?.split("/")[0];

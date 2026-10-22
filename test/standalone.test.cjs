@@ -1,23 +1,34 @@
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
+const { createRequire } = require("node:module");
+const path = require("node:path");
 const { test } = require("node:test");
 const vm = require("node:vm");
-const source = readFileSync(require("node:path").join(__dirname, "../src/reaction-library.js"), "utf8");
+const source = readFileSync(path.join(__dirname, "../src/reaction-library.js"), "utf8");
+const conversionSource = readFileSync(path.join(__dirname, "../src/media-conversion.js"), "utf8");
+const { transformSync } = createRequire(path.join(__dirname, "../../Equicord/package.json"))("esbuild");
+const mediaModule = { exports: {} };
+vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/media-source.js"), "utf8"), { format: "cjs" }).code, { module: mediaModule, exports: mediaModule.exports, URL });
+const mediaSource = mediaModule.exports;
+const localizationModule = { exports: {} };
+vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/localization.js"), "utf8"), { format: "cjs" }).code, { module: localizationModule, exports: localizationModule.exports });
+const senderModule = { exports: {} };
+vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/discord-sender.js"), "utf8"), { format: "cjs" }).code, { module: senderModule, exports: senderModule.exports, File });
 
 function section(from, to) {
     return source.slice(source.indexOf(from), source.indexOf(to));
 }
 
+function conversionSection(from, to) {
+    return conversionSource.slice(conversionSource.indexOf(from), to ? conversionSource.indexOf(to) : undefined).replace(/^export /, "");
+}
+
 test("interface language follows Discord's locale with English fallback", () => {
-    let selected = "pt-BR";
-    const context = vm.createContext({ vencord: () => ({ Webpack: { Common: { LocaleStore: { get locale() { return selected; } } } } }), document: { documentElement: { lang: "en-US" } } });
-    vm.runInContext(section("    const portuguese =", "    function dataStore(") + "globalThis.translate = t;", context);
-    assert.equal(context.translate("Send clip as voice"), "Enviar trecho como voz");
-    assert.equal(context.translate("Sent reaction.mp4."), "reaction.mp4 enviado.");
-    selected = "pt-PT";
-    assert.equal(context.translate("Add folder"), "Adicionar pasta");
-    selected = "fr";
-    assert.equal(context.translate("Add folder"), "Add folder");
+    const { translate } = localizationModule.exports;
+    assert.equal(translate("Send clip as voice", "pt-BR"), "Enviar trecho como voz");
+    assert.equal(translate("Sent reaction.mp4.", "pt-BR"), "reaction.mp4 enviado.");
+    assert.equal(translate("Add folder", "pt-PT"), "Adicionar pasta");
+    assert.equal(translate("Add folder", "fr"), "Add folder");
 });
 
 test("desktop fallback saves Discord media without using the page fetch", async () => {
@@ -36,6 +47,8 @@ test("desktop fallback saves Discord media without using the page fetch", async 
     let nativeCalls = 0;
     const context = vm.createContext({
         Blob, crypto: require("node:crypto").webcrypto,
+        firstDownload: mediaSource.firstDownload, mediaFilename: mediaSource.mediaFilename,
+        mediaKind: mediaSource.mediaKind, mediaTypeAllowed: mediaSource.mediaTypeAllowed,
         VencordNative: { pluginHelpers: { FileUpload: { async fetchFile() {
             nativeCalls++;
             if (nativeCalls === 1) return { success: false, error: "Failed to fetch" };
@@ -50,7 +63,7 @@ test("desktop fallback saves Discord media without using the page fetch", async 
         vencord: () => ({ Webpack: { Common: {} } }), locale: () => "en-US", status() {}, render() {},
         t: value => value
     });
-    vm.runInContext(section("    function mediaKind(", "    function element(") + section("    async function saveContextMedia(", "    function queueContextSave(") + "globalThis.run = saveContextMedia;", context);
+    vm.runInContext(section("    async function downloadBlob(", "    function queueContextSave(") + "globalThis.run = saveContextMedia;", context);
     await context.run({ urls: ["https://cdn.discordapp.com/attachments/1/2/reaction.png", "https://media.discordapp.net/attachments/1/2/reaction.png"], name: "reaction.png" });
     assert.equal(nativeCalls, 2);
     assert.equal(written.length, 1);
@@ -60,17 +73,23 @@ test("desktop fallback saves Discord media without using the page fetch", async 
 });
 
 test("spoiler preview resolves to the original attachment with proxy fallback", () => {
-    const context = vm.createContext({ URL, location: { href: "https://discord.com/channels/1/2" } });
-    vm.runInContext(section("    function mediaKind(", "    function element(") + section("    function contextMedia(", "    async function saveContextMedia(") + "globalThis.resolve = contextMedia;", context);
     const original = "https://cdn.discordapp.com/attachments/1/123/SPOILER_clip.mp4?ex=original";
     const proxy = "https://media.discordapp.net/attachments/1/123/SPOILER_clip.mp4?ex=proxy";
     const preview = "https://media.discordapp.net/attachments/1/123/SPOILER_clip.mp4?ex=preview&width=400";
-    const source = context.resolve("message", {
+    const source = mediaSource.contextMedia("message", {
         itemSrc: preview,
         message: { attachments: [{ url: original, proxy_url: proxy, filename: "SPOILER_clip.mp4" }] }
-    });
+    }, "https://discord.com/channels/1/2");
     assert.equal(source.name, "SPOILER_clip.mp4");
     assert.deepEqual(Array.from(source.urls), [original, proxy, preview]);
+});
+
+test("downloaded media names remain usable as library references", () => {
+    const name = mediaSource.mediaFilename("SPOILER_clip", "video/mp4");
+    assert.equal(name, "SPOILER_clip.mp4");
+    assert.equal(mediaSource.mediaKind({ name }), "video");
+    assert.equal(mediaSource.mediaFilename("../reaction.png", "image/png"), ".._reaction.png");
+    assert.equal(mediaSource.mediaTypeAllowed("text/html"), false);
 });
 
 function importer(failAt = Infinity) {
@@ -81,6 +100,7 @@ function importer(failAt = Infinity) {
     const context = vm.createContext({
         Error,
         entries: [], KEY: "index", FILE: id => `file:${id}`,
+        mediaKind: mediaSource.mediaKind,
         importProgress: { total: 1200, processed: 0, imported: 0, skipped: 0, failed: 0 },
         crypto: require("node:crypto").webcrypto,
         setTimeout: callback => callback(),
@@ -90,7 +110,7 @@ function importer(failAt = Infinity) {
             pairs.forEach(([key, value]) => records.set(key, value));
         } } })
     });
-    vm.runInContext(section("    function mediaKind(", "    function element(") + section("    async function importFolder(", "    function updateProgress(") + "globalThis.run = importFolder;", context);
+    vm.runInContext(section("    async function importFolder(", "    function updateProgress(") + "globalThis.run = importFolder;", context);
     return { context, records, stats: () => ({ writes, updates, renders }) };
 }
 
@@ -274,7 +294,13 @@ test("voice preparation encodes mono Opus into Ogg with duration and waveform me
             close() {}
         }
     });
-    vm.runInContext(section("    function waveform(", "    async function readMedia(") + "globalThis.prepare = prepareVoice; globalThis.page = oggPage;", context);
+    const voiceModule = { exports: {} };
+    context.module = voiceModule;
+    context.exports = voiceModule.exports;
+    const voiceSource = readFileSync(path.join(__dirname, "../src/voice-codec.js"), "utf8");
+    vm.runInContext(transformSync(voiceSource, { format: "cjs" }).code, context);
+    context.prepare = (blob, video, signal, clip) => voiceModule.exports.prepareVoice(blob, video, signal, clip, { status: context.status, extractVideoAudio: context.extractVideoAudio });
+    context.page = voiceModule.exports.oggPage;
     const result = await context.prepare(new Blob(["pretend mp3"]));
     assert.equal(config.codec, "opus");
     assert.equal(config.numberOfChannels, 1);
@@ -337,8 +363,8 @@ test("video audio extraction starts playback before recording its captured track
             stop() { this.state = "inactive"; this.onstop?.(); }
         }
     });
-    vm.runInContext(section("    async function extractVideoAudio(", "    function waveform(") + "globalThis.extract = extractVideoAudio;", context);
-    const result = await context.extract(new Blob(["video"]), new AbortController().signal);
+    vm.runInContext(conversionSection("export async function extractVideoAudio(") + "globalThis.extract = extractVideoAudio;", context);
+    const result = await context.extract(new Blob(["video"]), new AbortController().signal, context.status);
     assert.equal(await result.text(), "audio");
     assert.equal(disposed, true);
 });
@@ -355,8 +381,8 @@ test("file clips rewind warmed media and start recording before final playback",
         addEventListener() {}, removeEventListener() {}
     };
     const context = vm.createContext({
-        Blob, Error, setTimeout, clearTimeout, document: { body: { append() {} } },
-        element: () => media, status() {},
+        Blob, Error, setTimeout, clearTimeout,
+        document: { body: { append() {} }, createElement: () => media }, status() {},
         URL: { createObjectURL: () => "blob:clip", revokeObjectURL() {} },
         waitForMedia: async (_media, _event, _signal, action) => action(),
         MediaRecorder: class {
@@ -366,8 +392,8 @@ test("file clips rewind warmed media and start recording before final playback",
             stop() { this.state = "inactive"; this.onstop?.(); }
         }
     });
-    vm.runInContext(section("    async function prepareClip(", "    function closePlayback(") + "globalThis.clip = prepareClip;", context);
-    const result = await context.clip(new Blob(["video"]), "video", { start: 0, end: 0.5 }, new AbortController().signal);
+    vm.runInContext(conversionSection("export async function prepareClip(", "function waitForMedia(") + "globalThis.clip = prepareClip;", context);
+    const result = await context.clip(new Blob(["video"]), "video", { start: 0, end: 0.5 }, new AbortController().signal, context.status);
     assert.equal(await result.text(), "clip");
     assert.equal(plays, 2);
     assert.equal(playing, false);
@@ -389,14 +415,35 @@ test("voice upload sends Discord voice flags and clears a reply only after succe
         MessageActions: { getSendMessageOptionsForReply: () => ({ messageReference: { message_id: "reply" } }) },
         FluxDispatcher: { dispatch: () => events.push("reply cleared") }
     };
-    const context = vm.createContext({ File });
-    vm.runInContext(section("    async function uploadVoice(", "    async function readMedia(") + "globalThis.run = uploadVoice;", context);
-    await context.run(common, "channel", { blob: new Blob(["ogg"]), duration: 2, waveform: "wave" });
+    await senderModule.exports.uploadVoice(common, "channel", { blob: new Blob(["ogg"]), duration: 2, waveform: "wave" });
     assert.deepEqual(events, ["sent", "reply cleared"]);
     events.length = 0;
     common.RestAPI.post = async () => { throw new Error("send rejected"); };
-    await assert.rejects(context.run(common, "channel", { blob: new Blob(["ogg"]), duration: 2, waveform: "wave" }), /send rejected/);
+    await assert.rejects(senderModule.exports.uploadVoice(common, "channel", { blob: new Blob(["ogg"]), duration: 2, waveform: "wave" }), /send rejected/);
     assert.deepEqual(events, []);
+});
+
+test("file upload keeps other drafts and marks only the selected file as spoiler", async () => {
+    const draft = { item: { file: new File(["draft"], "draft.txt") } };
+    let uploads = [draft];
+    const sent = [];
+    const common = {
+        DraftType: { ChannelMessage: 0 },
+        UploadHandler: { async promptToUpload(files) { uploads.push({ item: { file: files[0] } }); } },
+        UploadAttachmentStore: { getUploads: () => uploads },
+        UploadManager: { setUploads: value => { uploads = value.uploads; } },
+        PendingReplyStore: { getPendingReply: () => null },
+        FluxDispatcher: { dispatch() {} },
+        MessageActions: { getSendMessageOptionsForReply: () => ({}) }
+    };
+    const vc = { Util: { async sendMessage(_channelId, _content, _wait, options) { sent.push(options.attachmentsToUpload[0]); } } };
+    const file = new File(["image"], "SPOILER_image.png", { type: "image/png" });
+    await senderModule.exports.uploadFile(vc, common, "channel", {}, file, true);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].item.file, file);
+    assert.equal(sent[0].item.isSpoiler, true);
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0], draft);
 });
 
 test("audio and video preview playback waits for a trim seek and replays with one click", async () => {
@@ -417,7 +464,7 @@ test("audio and video preview playback waits for a trim seek and replays with on
             return node;
         }
     });
-    vm.runInContext(section("    function closePlayback(", "    function waveform(") + "globalThis.preview = previewEntry; globalThis.closePreview = closePlayback;", context);
+    vm.runInContext(section("    function closePlayback(", "    async function readMedia(") + "globalThis.preview = previewEntry; globalThis.closePreview = closePlayback;", context);
     await context.preview({ kind, name: kind === "audio" ? "audio.mp3" : "video.mp4" });
     const audio = made.find(node => node.tag === kind);
     assert.equal(audio.controls, true);
@@ -472,11 +519,11 @@ test("video GIF conversion produces a decodable animation with timing and releas
         Blob, GIFEncoder, quantize, applyPalette, setTimeout,
         conversionVideo: async () => ({ video, dispose: () => disposed++ }),
         waitForMedia: async (_video, _event, signal, action) => { signal?.throwIfAborted(); action(); },
-        element: () => canvas,
+        document: { createElement: () => canvas },
         status: message => progress.push(message)
     });
-    vm.runInContext(section("    async function prepareGif(", "    async function extractVideoAudio(") + "globalThis.run = prepareGif;", context);
-    const result = await context.run(new Blob(["video"]), new AbortController().signal);
+    vm.runInContext(conversionSection("export async function prepareGif(", "export async function extractVideoAudio(") + "globalThis.run = prepareGif;", context);
+    const result = await context.run(new Blob(["video"]), new AbortController().signal, context.status);
     assert.equal(result.type, "image/gif");
     const frames = decompressFrames(parseGIF(await result.arrayBuffer()), true);
     assert.equal(frames.length, 2);
@@ -490,7 +537,7 @@ test("video GIF conversion produces a decodable animation with timing and releas
     assert.equal(progress.length, 2);
     const controller = new AbortController();
     controller.abort();
-    await assert.rejects(context.run(new Blob(["video"]), controller.signal), /abort/i);
+    await assert.rejects(context.run(new Blob(["video"]), controller.signal, context.status), /abort/i);
     assert.equal(disposed, 2);
 });
 
@@ -513,9 +560,11 @@ test("video send options upload the selected conversion while main-card send kee
         busy: false, conversion: undefined, root: undefined, status: message => statuses.push(message), close() {}, syncSendState() {}, finishSend() {},
         vencord: () => ({ Webpack: { Common: common }, Util: { async sendMessage(_id, _data, _wait, options) { sent.push(options.attachmentsToUpload[0].item.file); } } }),
         readMedia: async () => original,
+        extractVideoAudio() {},
         prepareClip: async () => { throw new Error("Voice clips must not use MediaRecorder"); },
         prepareGif: async (blob, signal) => { assert.equal(blob, original); assert.equal(signal.aborted, false); return new Blob(["GIF89a"], { type: "image/gif" }); },
         prepareVoice: async (blob, isVideo, signal, clip) => { assert.equal(blob, original); assert.equal(isVideo, true); assert.equal(signal.aborted, false); return { voice: true, clipped: !!clip }; },
+        uploadFile: senderModule.exports.uploadFile,
         uploadVoice: async (_common, id, prepared) => { assert.equal(id, "channel"); assert.equal(prepared.voice, true); sent.push(prepared.clipped ? "clip voice" : "voice"); }
     });
     vm.runInContext(section("    async function sendEntry(", "    function finishSend(") + "globalThis.run = sendEntry;", context);
@@ -563,6 +612,7 @@ test("closing the library leaves conversion running, reopening shows progress, a
         document: { querySelectorAll: () => [button] }, t: message => message, position() {}, closePlayback() {}, clearPreviews() {},
         vencord: () => ({ Webpack: { Common: common }, Util: { async sendMessage(id) { sent.push(id); } } }),
         readMedia: async () => new Blob(["video"]),
+        uploadFile: senderModule.exports.uploadFile,
         prepareGif: async (_blob, signal) => {
             currentSignal = signal;
             return new Promise((resolve, reject) => {

@@ -62,6 +62,8 @@ The plugin metadata currently uses `Devs.Ven` as a compilation placeholder becau
 
 ## Development and license
 
-Development currently uses dependencies from an adjacent Equicord checkout: clone this repository and Equicord side by side, then install Equicord's dependencies using its documented pnpm workflow. Run `node build.mjs` to build both current plugin packages, `node --test test/*.test.cjs` to run their tests, and Equicord's ESLint executable with this repository as the working directory to lint `src/reaction-library.js`.
+Development currently uses dependencies from an adjacent Equicord checkout: clone this repository and Equicord side by side, then install Equicord's dependencies using its documented pnpm workflow. Run `node build.mjs` to build both current plugin packages, `node --test test/*.test.cjs` to run their tests, and Equicord's ESLint executable with this repository as the working directory to lint `src/*.js`.
+
+The shared runtime in `src/reaction-library.js` coordinates the library UI, storage, and send flow. `src/media-source.js` handles context-menu media identification, download retry rules, and filenames. `src/media-conversion.js` handles clip recording, GIF conversion, and video audio extraction. `src/voice-codec.js` handles voice encoding. `src/discord-sender.js` handles Discord file and voice uploads. `src/localization.js` handles English and Portuguese text. The build bundles these modules into both Dorion and Vencord outputs; Vencord's native helper separately enforces disk access.
 
 Licensed under GPL-3.0-or-later. The generated standalone plugin also includes gifenc under its MIT license; that license is embedded in the generated file. The standalone plugin is the actively developed version; the Equicord source plugin is an earlier implementation.

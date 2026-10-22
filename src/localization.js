@@ -1,0 +1,140 @@
+/*
+ * Reaction Library translations
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+const portuguese = {
+    "Reaction Library": "Biblioteca de reações",
+    "Loading your library…": "Carregando sua biblioteca…",
+    "Scanning folder": "Verificando pasta",
+    "files found": "arquivos encontrados",
+    "Indexing": "Indexando",
+    "Import stopped": "Importação interrompida",
+    "Import complete": "Importação concluída",
+    "referenced": "referenciados",
+    "skipped": "ignorados",
+    "failed": "com falha",
+    "Folder import progress": "Progresso da importação da pasta",
+    "Previously indexed items are still available.": "Os itens já indexados continuam disponíveis.",
+    "The client mod is not ready yet. Try opening the library again.": "O mod do cliente ainda não está pronto. Tente abrir a biblioteca novamente.",
+    "The client mod is not ready yet.": "O mod do cliente ainda não está pronto.",
+    "This client version does not support persistent folder references. No files were copied.": "Esta versão do cliente não oferece referências permanentes a pastas. Nenhum arquivo foi copiado.",
+    "Storage write failed.": "Falha ao salvar os dados.",
+    "Open a chat before sending a reaction.": "Abra uma conversa antes de enviar uma reação.",
+    "Preparing clip…": "Preparando trecho…",
+    "Choose audio or video to send as a voice message.": "Escolha um áudio ou vídeo para enviar como mensagem de voz.",
+    "You cannot send voice messages in this channel.": "Você não pode enviar mensagens de voz neste canal.",
+    "Preparing voice message…": "Preparando mensagem de voz…",
+    "Uploading voice message…": "Enviando mensagem de voz…",
+    "Choose a video to send as a GIF.": "Escolha um vídeo para enviar como GIF.",
+    "Uploading GIF…": "Enviando GIF…",
+    "The upload was not accepted.": "O envio do arquivo não foi aceito.",
+    "Conversion cancelled.": "Conversão cancelada.",
+    "Could not send this reaction.": "Não foi possível enviar esta reação.",
+    "Only audio and video can be clipped.": "Somente áudios e vídeos podem ser recortados.",
+    "Clip recording is unavailable in this client version.": "A gravação de trechos não está disponível nesta versão do cliente.",
+    "Choose a valid clip start and end time.": "Escolha horários válidos para o início e o fim do trecho.",
+    "Clip recording is unavailable for this format in this client.": "Não é possível gravar trechos deste formato neste cliente.",
+    "This client cannot encode a clip of this type.": "Este cliente não consegue codificar um trecho deste tipo.",
+    "Could not record this clip.": "Não foi possível gravar este trecho.",
+    "The recorded clip was empty.": "O trecho gravado está vazio.",
+    "Your client cannot play this file's format. You can still send the original file.": "Seu cliente não consegue reproduzir este formato. Você ainda pode enviar o arquivo original.",
+    "Send file": "Enviar arquivo",
+    "Send as spoiler": "Enviar como spoiler",
+    "Send as voice": "Enviar como voz",
+    "Send as GIF": "Enviar como GIF",
+    "Close preview": "Fechar prévia",
+    "The preview could not seek to the clip start. Try playing again.": "A prévia não conseguiu ir ao início do trecho. Tente reproduzir novamente.",
+    "Clip start": "Início do trecho",
+    "Clip end": "Fim do trecho",
+    "Send clip": "Enviar trecho",
+    "Send clip as spoiler": "Enviar trecho como spoiler",
+    "Send clip as voice": "Enviar trecho como voz",
+    "Your client could not decode this video. You can send the original file instead.": "Seu cliente não conseguiu decodificar este vídeo. Você pode enviar o arquivo original.",
+    "Video decoding timed out. Try sending the original file.": "A decodificação do vídeo demorou demais. Tente enviar o arquivo original.",
+    "The video has no readable frames or duration.": "O vídeo não tem quadros ou duração legíveis.",
+    "GIF conversion is unavailable in this client version.": "A conversão para GIF não está disponível nesta versão do cliente.",
+    "This GIF is too large to prepare in memory. Try a shorter video or send the original file.": "Este GIF é grande demais para preparar na memória. Tente um vídeo mais curto ou envie o arquivo original.",
+    "This client version cannot extract this video's audio. Try a browser-supported video format.": "Esta versão do cliente não consegue extrair o áudio do vídeo. Tente um formato de vídeo compatível.",
+    "No supported audio track was found in this video.": "Nenhuma faixa de áudio compatível foi encontrada neste vídeo.",
+    "Audio extraction is unavailable in this client version.": "A extração de áudio não está disponível nesta versão do cliente.",
+    "Could not extract this video's audio.": "Não foi possível extrair o áudio deste vídeo.",
+    "The video's audio track was empty.": "A faixa de áudio do vídeo está vazia.",
+    "Audio packet is too large.": "O pacote de áudio é grande demais.",
+    "Extracting the video's audio in memory…": "Extraindo o áudio do vídeo na memória…",
+    "This audio file is empty or could not be decoded.": "Este áudio está vazio ou não pôde ser decodificado.",
+    "Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.": "A conversão para mensagem de voz não está disponível nesta versão do cliente. Envie como arquivo ou use áudio OGG Opus.",
+    "This client version cannot encode voice messages. Send the original file instead.": "Esta versão do cliente não consegue codificar mensagens de voz. Envie o arquivo original.",
+    "Voice conversion produced no audio.": "A conversão para mensagem de voz não produziu áudio.",
+    "Voice message upload failed.": "Falha ao enviar a mensagem de voz.",
+    "Restore folder access below to load your thumbnails. Your file references are still saved.": "Restaure o acesso à pasta abaixo para carregar as miniaturas. As referências aos arquivos continuam salvas.",
+    "Desktop file access is unavailable. Restart your client to load the plugin's native helper.": "O acesso a arquivos locais não está disponível. Reinicie o cliente para carregar o componente nativo do plugin.",
+    "This file is missing. Add its folder again to reconnect it.": "Este arquivo não foi encontrado. Adicione a pasta novamente para reconectá-lo.",
+    "Folder access needs to be renewed after restarting your client. Your library and tags are still saved.": "O acesso às pastas precisa ser renovado após reiniciar o cliente. Sua biblioteca e etiquetas continuam salvas.",
+    "Select folder again": "Selecionar pasta novamente",
+    "Restore access": "Restaurar acesso",
+    "Select": "Selecionar",
+    "Restore access to": "Restaurar acesso a",
+    "Select a referenced folder first, or use Add folder to reconnect it.": "Selecione uma pasta referenciada ou use Adicionar pasta para reconectá-la.",
+    "Folder access was not granted. Your references and tags are unchanged.": "O acesso à pasta não foi concedido. Suas referências e etiquetas não foram alteradas.",
+    "All folders": "Todas as pastas",
+    "No reactions match your search.": "Nenhuma reação corresponde à busca.",
+    "Choose a folder to start your reaction library.": "Escolha uma pasta para começar sua biblioteca de reações.",
+    "Preview and trim": "Prévia e recorte",
+    "Save": "Salvar",
+    "Add tags": "Adicionar etiquetas",
+    "Remove": "Remover",
+    "Tags, separated by commas": "Etiquetas, separadas por vírgulas",
+    "Drag the upper-left corner to resize. Arrow keys also work.": "Arraste o canto superior esquerdo para redimensionar. As setas do teclado também funcionam.",
+    "Resize library": "Redimensionar biblioteca",
+    "Cancel conversion": "Cancelar conversão",
+    "Search names, folders, and tags": "Buscar nomes, pastas e etiquetas",
+    "Search reactions": "Buscar reações",
+    "Type": "Tipo",
+    "All types": "Todos os tipos",
+    "Images and GIFs": "Imagens e GIFs",
+    "Videos": "Vídeos",
+    "Audio": "Áudio",
+    "Sort": "Ordenar",
+    "Newest": "Mais recentes",
+    "Oldest": "Mais antigos",
+    "Name": "Nome",
+    "Add folder": "Adicionar pasta",
+    "Set save folder": "Definir pasta para salvar",
+    "Save folder": "Pasta para salvar",
+    "No save folder selected": "Nenhuma pasta para salvar selecionada",
+    "Add to reaction library": "Adicionar à biblioteca de reações",
+    "Choose a default save folder in Reaction Library first.": "Escolha primeiro uma pasta padrão para salvar na Biblioteca de reações.",
+    "This media could not be downloaded.": "Não foi possível baixar esta mídia.",
+    "This media is too large to save (256 MiB limit).": "Esta mídia é grande demais para salvar (limite de 256 MiB).",
+    "The selected file is not supported media.": "O arquivo selecionado não é uma mídia compatível.",
+    "Save folder access expired. Set the save folder again in Reaction Library.": "O acesso à pasta para salvar expirou. Defina a pasta novamente na Biblioteca de reações.",
+    "The save folder is unavailable. Open Reaction Library and set the save folder again.": "A pasta para salvar não está disponível. Abra a Biblioteca de reações e defina a pasta novamente.",
+    "Library folder": "Pasta da biblioteca",
+    "Reconnect": "Reconectar",
+    "Remove folder": "Remover pasta",
+    "Restore folder access to load its thumbnail": "Restaure o acesso à pasta para carregar a miniatura",
+    "Options for": "Opções para",
+    "Preview": "Prévia",
+    "Send": "Enviar",
+    "Remove from library": "Remover da biblioteca"
+};
+
+export function translate(message, localeCode) {
+    if (!/^pt(?:-|$)/i.test(localeCode) || typeof message !== "string") return message;
+    const direct = portuguese[message];
+    if (direct) return direct;
+    return message.replace(/\b(?:Sending|Sent|Removed|Recording clip|Converting GIF|Extracting audio|Show more|Folder|Access to)\b[^]*$/, value => {
+        let match;
+        if ((match = /^Sending (.+)…$/.exec(value))) return `Enviando ${match[1]}…`;
+        if ((match = /^Sent (.+)\.$/.exec(value))) return `${match[1]} enviado.`;
+        if ((match = /^Removed (.+) old stored copies\. File references were preserved\.$/.exec(value))) return `${match[1]} cópias antigas removidas. As referências aos arquivos foram preservadas.`;
+        if ((match = /^Recording clip · (.+)$/.exec(value))) return `Gravando trecho · ${match[1]}`;
+        if ((match = /^Converting GIF · frame (.+)$/.exec(value))) return `Convertendo GIF · quadro ${match[1]}`;
+        if ((match = /^Extracting audio · (.+) \(plays through once\)$/.exec(value))) return `Extraindo áudio · ${match[1]} (reproduz uma vez)`;
+        if ((match = /^Show more \((.+)\)$/.exec(value))) return `Mostrar mais (${match[1]})`;
+        if ((match = /^Folder (.+) reconnected\.$/.exec(value))) return `Pasta ${match[1]} reconectada.`;
+        if ((match = /^Access to (.+) restored\. Thumbnails are loading\.$/.exec(value))) return `Acesso a ${match[1]} restaurado. As miniaturas estão carregando.`;
+        return value;
+    });
+}
