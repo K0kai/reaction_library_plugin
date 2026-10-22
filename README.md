@@ -6,6 +6,8 @@ The Windows setup ZIP includes the `ReactionLibrary-Setup.exe` launcher, which h
 
 The chat button opens a Discord themed library. The Dorion plugin's **Add folder** stores references to supported images, GIFs, videos, and audio files. Media stays in its original location. Folder scanning and indexing show live progress, and items appear after each batch of 20 references. The picker searches file names, folder paths, and user tags; filters by folder and media type; and sorts by name or import time. Clicking an item starts its upload and sends it to the current chat.
 
+The plugin interface follows Discord's selected language for English and Portuguese (Brazilian or European). Other client languages use English. Changing Discord's language updates the picker without restarting the plugin.
+
 ## Standalone Dorion plugin
 
 Keep Dorion's built-in Equicord enabled. Copy **only** `dorion/reaction-library.js` into `%USERPROFILE%\dorion\plugins` on Windows (or open the plugins folder from Dorion settings), enable it in Dorion's plugin settings, and restart Dorion. This file contains its own styles and does not replace Equicord. It uses the built-in Equicord's upload API to send files, so Equicord must remain enabled. It appears as a button in chat; it does not appear in Equicord's plugin list.
@@ -19,6 +21,10 @@ On the first library open after this update, a one-time cleanup removes old stor
 Image and video previews load only near the visible area, with at most three file reads in flight. Videos show a frame near the start without autoplay. The picker initially displays 60 items; **Show more** expands the list in batches. Unsupported video codecs retain a video icon.
 
 Clicking a media card still sends the original file immediately. Video and audio cards also have a separate **Preview** button, which opens playback controls without sending. Both offer **Send as voice** to send a Discord voice message with duration and waveform metadata. Video cards and previews additionally offer **Send as GIF**. All conversion output is temporary upload data in memory: no converted media is saved to disk or to the library, and the original remains unchanged.
+
+Each card now keeps secondary actions in a compact menu. Images and GIFs can be sent as spoilers there; audio and video also offer preview, voice, and GIF conversion where applicable. The audio and video preview has a trim timeline with draggable start and end handles for sending a duration clip as a file, spoiler, or voice message. The handles also support arrow keys. Clips are recorded in memory as WebM using the client's media support, so recording takes approximately the selected duration and unsupported codecs report an error.
+
+Preview playback follows the selected trim range. Playing outside the range starts at its beginning, playback stops at its end, and a playhead on the timeline shows the current position.
 
 Voice conversion uses existing OGG Opus audio directly and encodes other decodable audio to mono Opus when Dorion supports WebCodecs encoding. For videos, it first tries direct audio decoding, then an in-memory capture of the video's audio track. The fallback takes roughly the video's duration, plays silently, and shows progress. Videos with no decodable audio track report an error. Channel voice-message permissions apply.
 

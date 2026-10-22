@@ -95,6 +95,22 @@ export function createReactionLibrary(host, options = {}) {
         .${ROOT_CLASS} .rl-actions .rl-action-gif { border-color: #e5963280; background: #e5963233; color: #f8cd91; }
         .${ROOT_CLASS} .rl-actions .rl-action-close { border-color: var(--rl-border); background: var(--rl-card); color: var(--rl-muted); }
         .${ROOT_CLASS} .rl-actions button:hover, .${ROOT_CLASS} .rl-remove:hover { filter: brightness(1.2); }
+        .${ROOT_CLASS} .rl-options { position: relative; padding: 4px 6px; }
+        .${ROOT_CLASS} .rl-options summary { cursor: pointer; padding: 2px 6px; border-radius: 4px; list-style: none; color: var(--rl-muted); text-align: right; font-size: 18px; line-height: 20px; }
+        .${ROOT_CLASS} .rl-options summary::-webkit-details-marker { display: none; }
+        .${ROOT_CLASS} .rl-options summary:hover, .${ROOT_CLASS} .rl-options[open] summary { background: var(--rl-input); color: var(--rl-text); }
+        .${ROOT_CLASS} .rl-options[open] .rl-actions { display: flex; flex-direction: column; gap: 1px; padding: 3px 0 0; }
+        .${ROOT_CLASS} .rl-options .rl-actions button { padding: 5px 6px; border: 0; background: transparent; color: var(--rl-text); text-align: left; }
+        .${ROOT_CLASS} .rl-options .rl-actions button:hover { background: var(--rl-input); }
+        .${ROOT_CLASS} .rl-clip { margin-top: 10px; }
+        .${ROOT_CLASS} .rl-clip-track { position: relative; height: 54px; margin: 0 10px; border-radius: 4px; background: repeating-linear-gradient(90deg, #333841 0 16px, #252a33 16px 32px); touch-action: none; cursor: pointer; }
+        .${ROOT_CLASS} .rl-clip-selection { position: absolute; top: 0; bottom: 0; border: 2px solid #00c8ee; background: #00c8ee18; pointer-events: none; }
+        .${ROOT_CLASS} .rl-clip-playhead { position: absolute; top: -5px; bottom: -5px; width: 2px; background: white; box-shadow: 0 0 3px #000; pointer-events: none; transform: translateX(-50%); }
+        .${ROOT_CLASS} .rl-clip-handle { position: absolute; top: 0; bottom: 0; width: 13px; padding: 0; border: 0; border-radius: 4px; background: #00c8ee; color: white; cursor: ew-resize; touch-action: none; transform: translateX(-50%); }
+        .${ROOT_CLASS} .rl-clip-handle::after { content: '⋮'; }
+        .${ROOT_CLASS} .rl-clip-times { display: flex; justify-content: space-between; margin: 5px 0 8px; color: #00c8ee; font-size: 12px; font-variant-numeric: tabular-nums; }
+        .${ROOT_CLASS} .rl-clip-times span:nth-child(2) { color: var(--rl-muted); }
+        .${ROOT_CLASS} .rl-clip-actions { display: flex; flex-wrap: wrap; gap: 6px; }
         .${ROOT_CLASS} .rl-preview { padding: 10px 12px; border-bottom: 1px solid var(--rl-border); }
         .${ROOT_CLASS} .rl-preview:empty { display: none; }
         .${ROOT_CLASS} .rl-preview video { display: block; width: 100%; max-height: min(220px, 25vh); background: black; }
@@ -114,6 +130,135 @@ export function createReactionLibrary(host, options = {}) {
         return host ?? globalThis.Vencord;
     }
 
+    const portuguese = {
+        "Reaction Library": "Biblioteca de reações",
+        "Loading your library…": "Carregando sua biblioteca…",
+        "Scanning folder": "Verificando pasta",
+        "files found": "arquivos encontrados",
+        "Indexing": "Indexando",
+        "Import stopped": "Importação interrompida",
+        "Import complete": "Importação concluída",
+        "referenced": "referenciados",
+        "skipped": "ignorados",
+        "failed": "com falha",
+        "Folder import progress": "Progresso da importação da pasta",
+        "Previously indexed items are still available.": "Os itens já indexados continuam disponíveis.",
+        "The client mod is not ready yet. Try opening the library again.": "O mod do cliente ainda não está pronto. Tente abrir a biblioteca novamente.",
+        "The client mod is not ready yet.": "O mod do cliente ainda não está pronto.",
+        "This client version does not support persistent folder references. No files were copied.": "Esta versão do cliente não oferece referências permanentes a pastas. Nenhum arquivo foi copiado.",
+        "Storage write failed.": "Falha ao salvar os dados.",
+        "Open a chat before sending a reaction.": "Abra uma conversa antes de enviar uma reação.",
+        "Preparing clip…": "Preparando trecho…",
+        "Choose audio or video to send as a voice message.": "Escolha um áudio ou vídeo para enviar como mensagem de voz.",
+        "You cannot send voice messages in this channel.": "Você não pode enviar mensagens de voz neste canal.",
+        "Preparing voice message…": "Preparando mensagem de voz…",
+        "Uploading voice message…": "Enviando mensagem de voz…",
+        "Choose a video to send as a GIF.": "Escolha um vídeo para enviar como GIF.",
+        "Uploading GIF…": "Enviando GIF…",
+        "The upload was not accepted.": "O envio do arquivo não foi aceito.",
+        "Conversion cancelled.": "Conversão cancelada.",
+        "Could not send this reaction.": "Não foi possível enviar esta reação.",
+        "Only audio and video can be clipped.": "Somente áudios e vídeos podem ser recortados.",
+        "Clip recording is unavailable in this client version.": "A gravação de trechos não está disponível nesta versão do cliente.",
+        "Choose a valid clip start and end time.": "Escolha horários válidos para o início e o fim do trecho.",
+        "Clip recording is unavailable for this format in this client.": "Não é possível gravar trechos deste formato neste cliente.",
+        "This client cannot encode a clip of this type.": "Este cliente não consegue codificar um trecho deste tipo.",
+        "Could not record this clip.": "Não foi possível gravar este trecho.",
+        "The recorded clip was empty.": "O trecho gravado está vazio.",
+        "Your client cannot play this file's format. You can still send the original file.": "Seu cliente não consegue reproduzir este formato. Você ainda pode enviar o arquivo original.",
+        "Send file": "Enviar arquivo",
+        "Send as spoiler": "Enviar como spoiler",
+        "Send as voice": "Enviar como voz",
+        "Send as GIF": "Enviar como GIF",
+        "Close preview": "Fechar prévia",
+        "Clip start": "Início do trecho",
+        "Clip end": "Fim do trecho",
+        "Send clip": "Enviar trecho",
+        "Send clip as spoiler": "Enviar trecho como spoiler",
+        "Send clip as voice": "Enviar trecho como voz",
+        "Your client could not decode this video. You can send the original file instead.": "Seu cliente não conseguiu decodificar este vídeo. Você pode enviar o arquivo original.",
+        "Video decoding timed out. Try sending the original file.": "A decodificação do vídeo demorou demais. Tente enviar o arquivo original.",
+        "The video has no readable frames or duration.": "O vídeo não tem quadros ou duração legíveis.",
+        "GIF conversion is unavailable in this client version.": "A conversão para GIF não está disponível nesta versão do cliente.",
+        "This GIF is too large to prepare in memory. Try a shorter video or send the original file.": "Este GIF é grande demais para preparar na memória. Tente um vídeo mais curto ou envie o arquivo original.",
+        "This client version cannot extract this video's audio. Try a browser-supported video format.": "Esta versão do cliente não consegue extrair o áudio do vídeo. Tente um formato de vídeo compatível.",
+        "No supported audio track was found in this video.": "Nenhuma faixa de áudio compatível foi encontrada neste vídeo.",
+        "Audio extraction is unavailable in this client version.": "A extração de áudio não está disponível nesta versão do cliente.",
+        "Could not extract this video's audio.": "Não foi possível extrair o áudio deste vídeo.",
+        "The video's audio track was empty.": "A faixa de áudio do vídeo está vazia.",
+        "Audio packet is too large.": "O pacote de áudio é grande demais.",
+        "Extracting the video's audio in memory…": "Extraindo o áudio do vídeo na memória…",
+        "This audio file is empty or could not be decoded.": "Este áudio está vazio ou não pôde ser decodificado.",
+        "Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.": "A conversão para mensagem de voz não está disponível nesta versão do cliente. Envie como arquivo ou use áudio OGG Opus.",
+        "This client version cannot encode voice messages. Send the original file instead.": "Esta versão do cliente não consegue codificar mensagens de voz. Envie o arquivo original.",
+        "Voice conversion produced no audio.": "A conversão para mensagem de voz não produziu áudio.",
+        "Voice message upload failed.": "Falha ao enviar a mensagem de voz.",
+        "Restore folder access below to load your thumbnails. Your file references are still saved.": "Restaure o acesso à pasta abaixo para carregar as miniaturas. As referências aos arquivos continuam salvas.",
+        "Desktop file access is unavailable. Restart your client to load the plugin's native helper.": "O acesso a arquivos locais não está disponível. Reinicie o cliente para carregar o componente nativo do plugin.",
+        "This file is missing. Add its folder again to reconnect it.": "Este arquivo não foi encontrado. Adicione a pasta novamente para reconectá-lo.",
+        "Folder access needs to be renewed after restarting your client. Your library and tags are still saved.": "O acesso às pastas precisa ser renovado após reiniciar o cliente. Sua biblioteca e etiquetas continuam salvas.",
+        "Select folder again": "Selecionar pasta novamente",
+        "Restore access": "Restaurar acesso",
+        "Select": "Selecionar",
+        "Restore access to": "Restaurar acesso a",
+        "Select a referenced folder first, or use Add folder to reconnect it.": "Selecione uma pasta referenciada ou use Adicionar pasta para reconectá-la.",
+        "Folder access was not granted. Your references and tags are unchanged.": "O acesso à pasta não foi concedido. Suas referências e etiquetas não foram alteradas.",
+        "All folders": "Todas as pastas",
+        "No reactions match your search.": "Nenhuma reação corresponde à busca.",
+        "Choose a folder to start your reaction library.": "Escolha uma pasta para começar sua biblioteca de reações.",
+        "Preview and trim": "Prévia e recorte",
+        "Save": "Salvar",
+        "Add tags": "Adicionar etiquetas",
+        "Remove": "Remover",
+        "Tags, separated by commas": "Etiquetas, separadas por vírgulas",
+        "Drag the upper-left corner to resize. Arrow keys also work.": "Arraste o canto superior esquerdo para redimensionar. As setas do teclado também funcionam.",
+        "Resize library": "Redimensionar biblioteca",
+        "Cancel conversion": "Cancelar conversão",
+        "Search names, folders, and tags": "Buscar nomes, pastas e etiquetas",
+        "Search reactions": "Buscar reações",
+        "Type": "Tipo",
+        "All types": "Todos os tipos",
+        "Images and GIFs": "Imagens e GIFs",
+        "Videos": "Vídeos",
+        "Audio": "Áudio",
+        "Sort": "Ordenar",
+        "Newest": "Mais recentes",
+        "Oldest": "Mais antigos",
+        "Name": "Nome",
+        "Add folder": "Adicionar pasta",
+        "Library folder": "Pasta da biblioteca",
+        "Reconnect": "Reconectar",
+        "Remove folder": "Remover pasta",
+        "Restore folder access to load its thumbnail": "Restaure o acesso à pasta para carregar a miniatura",
+        "Options for": "Opções para",
+        "Preview": "Prévia",
+        "Send": "Enviar",
+        "Remove from library": "Remover da biblioteca"
+    };
+
+    function locale() {
+        return vencord()?.Webpack?.Common?.LocaleStore?.locale ?? document.documentElement?.lang ?? "en-US";
+    }
+
+    function t(message) {
+        if (!/^pt(?:-|$)/i.test(locale()) || typeof message !== "string") return message;
+        const direct = portuguese[message];
+        if (direct) return direct;
+        return message.replace(/\b(?:Sending|Sent|Removed|Recording clip|Converting GIF|Extracting audio|Show more|Folder|Access to)\b[^]*$/, value => {
+            let match;
+            if ((match = /^Sending (.+)…$/.exec(value))) return `Enviando ${match[1]}…`;
+            if ((match = /^Sent (.+)\.$/.exec(value))) return `${match[1]} enviado.`;
+            if ((match = /^Removed (.+) old stored copies\. File references were preserved\.$/.exec(value))) return `${match[1]} cópias antigas removidas. As referências aos arquivos foram preservadas.`;
+            if ((match = /^Recording clip · (.+)$/.exec(value))) return `Gravando trecho · ${match[1]}`;
+            if ((match = /^Converting GIF · frame (.+)$/.exec(value))) return `Convertendo GIF · quadro ${match[1]}`;
+            if ((match = /^Extracting audio · (.+) \(plays through once\)$/.exec(value))) return `Extraindo áudio · ${match[1]} (reproduz uma vez)`;
+            if ((match = /^Show more \((.+)\)$/.exec(value))) return `Mostrar mais (${match[1]})`;
+            if ((match = /^Folder (.+) reconnected\.$/.exec(value))) return `Pasta ${match[1]} reconectada.`;
+            if ((match = /^Access to (.+) restored\. Thumbnails are loading\.$/.exec(value))) return `Acesso a ${match[1]} restaurado. As miniaturas estão carregando.`;
+            return value;
+        });
+    }
+
     function dataStore() {
         const api = vencord()?.Api?.DataStore;
         if (!api) throw new Error("The client mod is not ready yet. Try opening the library again.");
@@ -131,14 +276,14 @@ export function createReactionLibrary(host, options = {}) {
     function element(tag, className, text) {
         const node = document.createElement(tag);
         if (className) node.className = className;
-        if (text != null) node.textContent = text;
+        if (text != null) node.textContent = t(text).replace(/^([◉♫▧▶] {2})(.+)$/, (_, icon, label) => icon + t(label));
         return node;
     }
 
     function status(message) {
         lastStatus = message;
         const line = root?.querySelector(".rl-status");
-        if (line) line.textContent = message;
+        if (line) line.textContent = t(message);
         syncSendState();
         position();
         if (message) console.info(`[${NAME}] ${message}`);
@@ -159,7 +304,7 @@ export function createReactionLibrary(host, options = {}) {
         for (const button of document.querySelectorAll(`.${BUTTON_CLASS}`)) {
             button.classList.toggle("rl-working", busy);
             button.setAttribute("aria-busy", String(busy));
-            button.title = busy && lastStatus ? lastStatus : NAME;
+            button.title = busy && lastStatus ? t(lastStatus) : t(NAME);
         }
     }
 
@@ -327,19 +472,19 @@ export function createReactionLibrary(host, options = {}) {
         if (!area) return;
         area.replaceChildren();
         if (loading && !importProgress) {
-            area.textContent = "Loading your library…";
+            area.textContent = t("Loading your library…");
         } else if (importProgress) {
             const p = importProgress;
-            const prefix = p.scanning ? `Scanning folder · ${p.total.toLocaleString()} files found` : importing ? `Indexing ${p.processed.toLocaleString()} / ${p.total.toLocaleString()}` : p.error ? "Import stopped" : "Import complete";
-            area.append(element("div", "", `${prefix} · ${p.imported.toLocaleString()} referenced${p.skipped ? ` · ${p.skipped} skipped` : ""}${p.failed ? ` · ${p.failed} failed` : ""}`));
+            const prefix = p.scanning ? `${t("Scanning folder")} · ${p.total.toLocaleString()} ${t("files found")}` : importing ? `${t("Indexing")} ${p.processed.toLocaleString()} / ${p.total.toLocaleString()}` : p.error ? t("Import stopped") : t("Import complete");
+            area.append(element("div", "", `${prefix} · ${p.imported.toLocaleString()} ${t("referenced")}${p.skipped ? ` · ${p.skipped} ${t("skipped")}` : ""}${p.failed ? ` · ${p.failed} ${t("failed")}` : ""}`));
             if (importing) {
                 const progress = element("progress");
                 progress.max = Math.max(1, p.total);
                 if (!p.scanning) progress.value = p.imported + p.skipped;
-                progress.setAttribute("aria-label", "Folder import progress");
+                progress.setAttribute("aria-label", t("Folder import progress"));
                 area.append(progress);
             }
-            if (p.error) area.append(element("div", "", `${p.error} Previously indexed items are still available.`));
+            if (p.error) area.append(element("div", "", `${t(p.error)} ${t("Previously indexed items are still available.")}`));
         }
         position();
     }
@@ -354,12 +499,12 @@ export function createReactionLibrary(host, options = {}) {
         await render();
     }
 
-    async function sendEntry(entry, format = "file") {
+    async function sendEntry(entry, format = "file", options = {}) {
         if (busy) return;
         busy = true;
         const initialRoot = root;
         const voice = format === "voice";
-        if (format !== "file") conversion = new AbortController();
+        if (format !== "file" || options.clip) conversion = new AbortController();
         const signal = conversion?.signal;
         status(`Sending ${entry.name}…`);
         try {
@@ -371,6 +516,11 @@ export function createReactionLibrary(host, options = {}) {
             if (!channel) throw new Error("Open a chat before sending a reaction.");
             let blob = await readMedia(entry, true);
             signal?.throwIfAborted();
+            if (options.clip) {
+                status("Preparing clip…");
+                blob = await prepareClip(blob, entry.kind, options.clip, signal);
+                signal?.throwIfAborted();
+            }
             if (voice) {
                 if (entry.kind !== "audio" && entry.kind !== "video") throw new Error("Choose audio or video to send as a voice message.");
                 if (channel.guild_id && (!common.PermissionStore.can(common.PermissionsBits.SEND_VOICE_MESSAGES, channel) || !common.PermissionStore.can(common.PermissionsBits.SEND_MESSAGES, channel))) throw new Error("You cannot send voice messages in this channel.");
@@ -390,7 +540,8 @@ export function createReactionLibrary(host, options = {}) {
                 conversion = undefined;
                 status("Uploading GIF…");
             }
-            const filename = format === "gif" ? entry.name.replace(/\.[^.]+$/, "") + ".gif" : entry.name;
+            const baseName = format === "gif" ? entry.name.replace(/\.[^.]+$/, "") + ".gif" : options.clip ? entry.name.replace(/\.[^.]+$/, "") + "-clip.webm" : entry.name;
+            const filename = options.spoiler ? `SPOILER_${baseName}` : baseName;
             const file = new File([blob], filename, { type: blob.type });
             const draftType = common.DraftType.ChannelMessage;
             await common.UploadHandler.promptToUpload([file], channel, draftType);
@@ -398,6 +549,7 @@ export function createReactionLibrary(host, options = {}) {
             const index = uploads.findIndex(upload => upload.item.file === file);
             if (index < 0) throw new Error("The upload was not accepted.");
             const [upload] = uploads.splice(index, 1);
+            if (options.spoiler) upload.item.isSpoiler = true;
             common.UploadManager.setUploads({ uploads, channelId, draftType });
             const reply = common.PendingReplyStore.getPendingReply(channelId);
             common.FluxDispatcher.dispatch({ type: "DELETE_PENDING_REPLY", channelId });
@@ -409,7 +561,7 @@ export function createReactionLibrary(host, options = {}) {
         } catch (error) {
             const message = signal?.aborted ? "Conversion cancelled." : error instanceof Error ? error.message : "Could not send this reaction.";
             status(message);
-            if (!root) vencord()?.Webpack?.Common?.showToast?.({ text: message, variant: "critical" });
+            if (!root) vencord()?.Webpack?.Common?.showToast?.({ text: t(message), variant: "critical" });
         } finally {
             busy = false;
             conversion = undefined;
@@ -420,7 +572,54 @@ export function createReactionLibrary(host, options = {}) {
     function finishSend(entry, initialRoot) {
         status(`Sent ${entry.name}.`);
         if (root && root === initialRoot) close();
-        else vencord()?.Webpack?.Common?.showToast?.({ text: `Sent ${entry.name}.`, variant: "success" });
+        else vencord()?.Webpack?.Common?.showToast?.({ text: t(`Sent ${entry.name}.`), variant: "success" });
+    }
+
+    async function prepareClip(blob, kind, clip, signal) {
+        if (kind !== "audio" && kind !== "video") throw new Error("Only audio and video can be clipped.");
+        if (!globalThis.MediaRecorder) throw new Error("Clip recording is unavailable in this client version.");
+        const media = element(kind);
+        const url = URL.createObjectURL(blob);
+        let stream;
+        let recorder;
+        media.preload = "auto";
+        media.playsInline = true;
+        media.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;pointer-events:none";
+        document.body.append(media);
+        try {
+            await waitForMedia(media, "loadedmetadata", signal, () => { media.src = url; media.load(); });
+            const { start, end } = clip;
+            if (!Number.isFinite(media.duration) || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > media.duration || end - start < 0.1) throw new Error("Choose a valid clip start and end time.");
+            if (start) await waitForMedia(media, "seeked", signal, () => { media.currentTime = start; });
+            if (!media.captureStream) throw new Error("Clip recording is unavailable for this format in this client.");
+            stream = media.captureStream();
+            const mimeType = kind === "video" ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"] : ["audio/webm;codecs=opus", "audio/webm"];
+            const supported = mimeType.find(type => MediaRecorder.isTypeSupported(type));
+            if (!supported) throw new Error("This client cannot encode a clip of this type.");
+            recorder = new MediaRecorder(stream, { mimeType: supported });
+            const chunks = [];
+            return await new Promise((resolve, reject) => {
+                let settled = false;
+                const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); media.removeEventListener("timeupdate", progress); media.removeEventListener("ended", stop); };
+                const fail = error => { if (settled) return; settled = true; cleanup(); reject(error); };
+                const stop = () => { if (recorder.state !== "inactive") recorder.stop(); };
+                const abort = () => { stop(); fail(new Error("Conversion cancelled.")); };
+                const progress = () => { status(`Recording clip · ${Math.min(100, Math.round((media.currentTime - start) / (end - start) * 100))}%`); if (media.currentTime >= end) stop(); };
+                const timer = setTimeout(stop, Math.ceil((end - start) * 1000) + 1000);
+                recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+                recorder.onerror = () => fail(new Error("Could not record this clip."));
+                recorder.onstop = () => { if (settled) return; settled = true; cleanup(); const result = new Blob(chunks, { type: supported }); result.size ? resolve(result) : reject(new Error("The recorded clip was empty.")); };
+                signal?.addEventListener("abort", abort, { once: true });
+                media.addEventListener("timeupdate", progress);
+                media.addEventListener("ended", stop, { once: true });
+                try { recorder.start(); media.play().catch(fail); } catch (error) { fail(error); }
+            });
+        } finally {
+            media.pause();
+            if (recorder?.state !== "inactive") recorder.stop();
+            stream?.getTracks().forEach(track => track.stop());
+            media.removeAttribute("src"); media.load(); media.remove(); URL.revokeObjectURL(url);
+        }
     }
 
     function closePlayback() {
@@ -453,6 +652,7 @@ export function createReactionLibrary(host, options = {}) {
             const actions = element("div", "rl-actions");
             for (const [label, className, action] of [
                 ["Send file", "rl-action-send", () => void sendEntry(entry)],
+                ["Send as spoiler", "", () => void sendEntry(entry, "file", { spoiler: true })],
                 ["Send as voice", "rl-action-voice", () => void sendEntry(entry, "voice")],
                 ...(entry.kind === "video" ? [["Send as GIF", "rl-action-gif", () => void sendEntry(entry, "gif")]] : []),
                 ["Close preview", "rl-action-close", () => { closePlayback(); position(); }]
@@ -463,6 +663,93 @@ export function createReactionLibrary(host, options = {}) {
                 actions.append(button);
             }
             area.append(element("div", "rl-preview-title", entry.name), media, actions);
+            const clip = element("div", "rl-clip");
+            const track = element("div", "rl-clip-track");
+            const selection = element("div", "rl-clip-selection");
+            const playhead = element("div", "rl-clip-playhead");
+            const startHandle = element("button", "rl-clip-handle");
+            const endHandle = element("button", "rl-clip-handle");
+            const times = element("div", "rl-clip-times");
+            const startTime = element("span");
+            const durationTime = element("span");
+            const endTime = element("span");
+            let duration = 0;
+            let start = 0;
+            let end = 0;
+            const timeLabel = value => `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toFixed(1).padStart(4, "0")}`;
+            const updatePlayhead = () => { playhead.style.left = `${duration ? Math.max(0, Math.min(100, media.currentTime / duration * 100)) : 0}%`; };
+            const updateClip = () => {
+                const left = duration ? start / duration * 100 : 0;
+                const right = duration ? end / duration * 100 : 100;
+                selection.style.left = `${left}%`;
+                selection.style.width = `${right - left}%`;
+                startHandle.style.left = `${left}%`;
+                endHandle.style.left = `${right}%`;
+                startTime.textContent = timeLabel(start);
+                durationTime.textContent = timeLabel(end - start);
+                endTime.textContent = timeLabel(end);
+                startHandle.setAttribute("aria-valuenow", String(start.toFixed(1)));
+                endHandle.setAttribute("aria-valuenow", String(end.toFixed(1)));
+                updatePlayhead();
+            };
+            media.addEventListener("loadedmetadata", () => {
+                if (!Number.isFinite(media.duration) || media.duration <= 0) return;
+                duration = media.duration;
+                end = duration;
+                for (const handle of [startHandle, endHandle]) handle.setAttribute("aria-valuemax", String(duration));
+                updateClip();
+            }, { once: true });
+            media.addEventListener("play", () => {
+                if (duration && (media.currentTime < start || media.currentTime >= end)) media.currentTime = start;
+            });
+            media.addEventListener("seeking", () => {
+                if (!duration) return;
+                if (media.currentTime < start) media.currentTime = start;
+                else if (media.currentTime > end) media.currentTime = end;
+                updatePlayhead();
+            });
+            media.addEventListener("timeupdate", () => {
+                if (!duration) return;
+                if (media.currentTime < start) media.currentTime = start;
+                else if (media.currentTime >= end) {
+                    media.pause();
+                    if (media.currentTime > end) media.currentTime = end;
+                }
+                updatePlayhead();
+            });
+            const moveHandle = (which, value) => {
+                if (!duration) return;
+                const minimum = Math.min(0.1, duration);
+                if (which === "start") start = Math.max(0, Math.min(end - minimum, value));
+                else end = Math.min(duration, Math.max(start + minimum, value));
+                media.currentTime = which === "start" ? start : end;
+                updateClip();
+            };
+            for (const [handle, which, label] of [[startHandle, "start", "Clip start"], [endHandle, "end", "Clip end"]]) {
+                handle.type = "button";
+                handle.setAttribute("aria-label", t(label));
+                handle.setAttribute("aria-valuemin", "0");
+                handle.addEventListener("pointerdown", event => { event.preventDefault(); handle.setPointerCapture(event.pointerId); });
+                handle.addEventListener("pointermove", event => { if (handle.hasPointerCapture(event.pointerId)) { const bounds = track.getBoundingClientRect(); moveHandle(which, (event.clientX - bounds.left) / bounds.width * duration); } });
+                handle.addEventListener("keydown", event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); moveHandle(which, (which === "start" ? start : end) + (event.key === "ArrowRight" ? 0.1 : -0.1)); } });
+            }
+            track.addEventListener("pointerdown", event => { if (event.target !== track && event.target !== selection) return; const bounds = track.getBoundingClientRect(); const value = (event.clientX - bounds.left) / bounds.width * duration; moveHandle(Math.abs(value - start) < Math.abs(value - end) ? "start" : "end", value); });
+            track.append(selection, playhead, startHandle, endHandle);
+            times.append(startTime, durationTime, endTime);
+            updateClip();
+            const clipSend = element("button", "rl-primary", "Send clip");
+            clipSend.type = "button";
+            clipSend.addEventListener("click", () => void sendEntry(entry, "file", { clip: { start, end } }));
+            const clipSpoiler = element("button", "rl-primary", "Send clip as spoiler");
+            clipSpoiler.type = "button";
+            clipSpoiler.addEventListener("click", () => void sendEntry(entry, "file", { spoiler: true, clip: { start, end } }));
+            const clipVoice = element("button", "rl-primary", "Send clip as voice");
+            clipVoice.type = "button";
+            clipVoice.addEventListener("click", () => void sendEntry(entry, "voice", { clip: { start, end } }));
+            const clipActions = element("div", "rl-clip-actions");
+            clipActions.append(clipSend, clipSpoiler, clipVoice);
+            clip.append(track, times, clipActions);
+            area.append(clip);
             position();
         } catch (error) { status(error.message); }
     }
@@ -779,7 +1066,7 @@ export function createReactionLibrary(host, options = {}) {
             const missing = folderAccess.get(name) === "unavailable";
             const button = element("button", "rl-primary", missing ? "Select folder again" : "Restore access");
             button.type = "button";
-            button.setAttribute("aria-label", `${missing ? "Select" : "Restore access to"} ${name}`);
+            button.setAttribute("aria-label", `${t(missing ? "Select" : "Restore access to")} ${name}`);
             button.addEventListener("click", () => void (missing ? pickFolder() : reconnect(name)));
             row.append(element("span", "", name), button);
             area.append(row);
@@ -828,7 +1115,7 @@ export function createReactionLibrary(host, options = {}) {
 
     async function removeEntries(items) {
         if (importing || removing || !items.length) return;
-        if (!confirm(`Remove ${items.length === 1 ? items[0].name : `${items.length} items`} from the library? Original files on your computer will stay untouched.`)) return;
+        if (!confirm(/^pt/i.test(locale()) ? `Remover ${items.length === 1 ? items[0].name : `${items.length} itens`} da biblioteca? Os arquivos originais no computador não serão alterados.` : `Remove ${items.length === 1 ? items[0].name : `${items.length} items`} from the library? Original files on your computer will stay untouched.`)) return;
         removing = true;
         updateProgress();
         try {
@@ -846,7 +1133,7 @@ export function createReactionLibrary(host, options = {}) {
             entries = next;
             folderHandles = nextFolders;
             render();
-            status(`${items.length} item${items.length === 1 ? "" : "s"} removed from the library.`);
+            status(/^pt/i.test(locale()) ? `${items.length} ${items.length === 1 ? "item removido" : "itens removidos"} da biblioteca.` : `${items.length} item${items.length === 1 ? "" : "s"} removed from the library.`);
         } catch (error) { status(error.message); }
         finally { removing = false; updateProgress(); }
     }
@@ -919,7 +1206,7 @@ export function createReactionLibrary(host, options = {}) {
             } catch (error) {
                 if (error.name === "NotAllowedError") {
                     state.symbol.textContent = "🔒";
-                    state.button.title = `${state.entry.name} · Restore folder access to load its thumbnail`;
+                    state.button.title = `${state.entry.name} · ${t("Restore folder access to load its thumbnail")}`;
                 }
                 if (currentRender === renderId && !accessWarning) {
                     accessWarning = true;
@@ -977,7 +1264,7 @@ export function createReactionLibrary(host, options = {}) {
             const item = element("div", "rl-item");
             const sendButton = element("button", "rl-send");
             sendButton.type = "button";
-            sendButton.title = `Send ${entry.name}`;
+            sendButton.title = `${t("Send")} ${entry.name}`;
             sendButton.addEventListener("click", () => void sendEntry(entry));
             const symbol = element("span", "rl-symbol", entry.kind === "video" ? "▶" : entry.kind === "audio" ? "♫" : "▧");
             sendButton.append(symbol);
@@ -985,34 +1272,45 @@ export function createReactionLibrary(host, options = {}) {
             if (entry.kind === "video") sendButton.append(element("span", "rl-video-badge", "▶"));
             sendButton.append(element("strong", "", entry.name));
             item.append(sendButton);
-            if (entry.kind === "audio" || entry.kind === "video") {
+            {
+                const menu = element("details", "rl-options");
+                const summary = element("summary", "", "⋯");
+                summary.setAttribute("aria-label", `${t("Options for")} ${entry.name}`);
+                summary.title = `${t("Options for")} ${entry.name}`;
                 const actions = element("div", "rl-actions");
-                const preview = element("button", "rl-action-preview", "Preview");
-                preview.type = "button";
-                preview.setAttribute("aria-label", `Preview ${entry.name}`);
-                preview.addEventListener("click", () => void previewEntry(entry));
-                actions.append(preview);
-                if (entry.kind === "audio") {
-                    const voice = element("button", "rl-action-voice", "Send as voice");
-                    voice.type = "button";
-                    voice.addEventListener("click", () => void sendEntry(entry, "voice"));
-                    actions.append(voice);
+                const spoiler = element("button", "", "◉  Send as spoiler");
+                spoiler.type = "button";
+                spoiler.addEventListener("click", () => void sendEntry(entry, "file", { spoiler: true }));
+                actions.append(spoiler);
+                if (entry.kind === "audio" || entry.kind === "video") {
+                    if (entry.kind === "audio") {
+                        const voice = element("button", "rl-action-voice", "♫  Send as voice");
+                        voice.type = "button";
+                        voice.addEventListener("click", () => void sendEntry(entry, "voice"));
+                        actions.append(voice);
+                    }
+                    if (entry.kind === "video") {
+                        const voice = element("button", "rl-action-voice", "♫  Send as voice");
+                        voice.type = "button";
+                        voice.addEventListener("click", () => void sendEntry(entry, "voice"));
+                        const gif = element("button", "rl-action-gif", "▧  Send as GIF");
+                        gif.type = "button";
+                        gif.addEventListener("click", () => void sendEntry(entry, "gif"));
+                        actions.append(voice, gif);
+                    }
+                    const preview = element("button", "rl-action-preview", "▶  Preview and trim");
+                    preview.type = "button";
+                    preview.setAttribute("aria-label", `${t("Preview")} ${entry.name}`);
+                    preview.addEventListener("click", () => void previewEntry(entry));
+                    actions.append(preview);
                 }
-                if (entry.kind === "video") {
-                    const voice = element("button", "rl-action-voice", "Send as voice");
-                    voice.type = "button";
-                    voice.addEventListener("click", () => void sendEntry(entry, "voice"));
-                    const gif = element("button", "rl-action-gif", "Send as GIF");
-                    gif.type = "button";
-                    gif.addEventListener("click", () => void sendEntry(entry, "gif"));
-                    actions.append(voice, gif);
-                }
-                item.append(actions);
+                menu.append(summary, actions);
+                item.append(menu);
             }
             if (editing === entry.id) {
                 const row = element("div", "rl-tags");
                 const input = element("input");
-                input.placeholder = "Tags, separated by commas";
+                input.placeholder = t("Tags, separated by commas");
                 input.value = entry.tags.join(", ");
                 input.addEventListener("keydown", event => { if (event.key === "Enter") void saveTags(entry, input.value); });
                 const save = element("button", "rl-primary", "Save");
@@ -1029,7 +1327,7 @@ export function createReactionLibrary(host, options = {}) {
                 const remove = element("button", "rl-remove", "Remove");
                 remove.type = "button";
                 remove.disabled = importing || removing;
-                remove.setAttribute("aria-label", `Remove ${entry.name} from library`);
+                remove.setAttribute("aria-label", /^pt/i.test(locale()) ? `Remover ${entry.name} da biblioteca` : `Remove ${entry.name} from library`);
                 remove.addEventListener("click", () => void removeEntries([entry]));
                 footer.append(edit, remove);
                 item.append(footer);
@@ -1079,12 +1377,12 @@ export function createReactionLibrary(host, options = {}) {
         anchor = button;
         root = element("div", ROOT_CLASS);
         root.setAttribute("role", "dialog");
-        root.setAttribute("aria-label", NAME);
+        root.setAttribute("aria-label", t(NAME));
         root.append(element("header", "", NAME));
         const resize = element("button", "rl-resize");
         resize.type = "button";
-        resize.title = "Drag the upper-left corner to resize. Arrow keys also work.";
-        resize.setAttribute("aria-label", "Resize library");
+        resize.title = t("Drag the upper-left corner to resize. Arrow keys also work.");
+        resize.setAttribute("aria-label", t("Resize library"));
         let drag;
         resize.addEventListener("pointerdown", event => {
             if (event.button !== 0) return;
@@ -1117,12 +1415,12 @@ export function createReactionLibrary(host, options = {}) {
         const controls = element("div", "rl-controls");
         const search = element("input");
         search.type = "search";
-        search.placeholder = "Search names, folders, and tags";
-        search.setAttribute("aria-label", "Search reactions");
+        search.placeholder = t("Search names, folders, and tags");
+        search.setAttribute("aria-label", t("Search reactions"));
         search.value = query;
         search.addEventListener("input", () => { query = search.value; visibleLimit = 60; root.querySelector(".rl-scroll").scrollTop = 0; render(); });
         const type = element("select");
-        type.setAttribute("aria-label", "Type");
+        type.setAttribute("aria-label", t("Type"));
         for (const [value, label] of [["all", "All types"], ["image", "Images and GIFs"], ["video", "Videos"], ["audio", "Audio"]]) {
             const option = element("option", "", label);
             option.value = value;
@@ -1131,7 +1429,7 @@ export function createReactionLibrary(host, options = {}) {
         type.value = filter;
         type.addEventListener("change", () => { filter = type.value; visibleLimit = 60; render(); });
         const order = element("select");
-        order.setAttribute("aria-label", "Sort");
+        order.setAttribute("aria-label", t("Sort"));
         for (const [value, label] of [["newest", "Newest"], ["oldest", "Oldest"], ["name", "Name"]]) {
             const option = element("option", "", label);
             option.value = value;
@@ -1146,7 +1444,7 @@ export function createReactionLibrary(host, options = {}) {
         add.addEventListener("click", () => void pickFolder());
         const folders = element("div", "rl-folders");
         const folderSelect = element("select", "rl-folder-select");
-        folderSelect.setAttribute("aria-label", "Library folder");
+        folderSelect.setAttribute("aria-label", t("Library folder"));
         folderSelect.addEventListener("change", () => { folderFilter = folderSelect.value; visibleLimit = 60; accessWarning = false; render(); });
         const reconnectButton = element("button", "rl-primary", "Reconnect");
         reconnectButton.type = "button";
@@ -1173,14 +1471,21 @@ export function createReactionLibrary(host, options = {}) {
     }
 
     function mount() {
+        const nextLocaleStore = vencord()?.Webpack?.Common?.LocaleStore;
+        if (nextLocaleStore !== localeStore) {
+            localeStore?.removeChangeListener?.(refreshLocale);
+            localeStore = nextLocaleStore;
+            localeStore?.addChangeListener?.(refreshLocale);
+        }
+        refreshLocale();
         for (const form of document.querySelectorAll("form")) {
             if (!form.querySelector('[role="textbox"][contenteditable="true"], [data-slate-editor="true"]')) continue;
             const host = form.querySelector('[class*="buttons_"]');
             if (!host || host.querySelector(`.${BUTTON_CLASS}`)) continue;
             const button = element("button", BUTTON_CLASS);
             button.type = "button";
-            button.title = NAME;
-            button.setAttribute("aria-label", NAME);
+            button.title = t(NAME);
+            button.setAttribute("aria-label", t(NAME));
             button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="m5 16 5-5 3 3 3-3 3 3" stroke="currentColor" stroke-width="2"/><circle cx="16.5" cy="8" r="1.5" fill="currentColor"/></svg>';
             button.addEventListener("click", () => void open(button));
             const gif = [...host.querySelectorAll("button")].find(item => /gif/i.test(item.getAttribute("aria-label") ?? ""));
@@ -1196,6 +1501,22 @@ export function createReactionLibrary(host, options = {}) {
     let frame;
     let style;
     let started = false;
+    let localeStore;
+    let displayedLocale;
+    function refreshLocale() {
+        const current = locale();
+        if (current === displayedLocale) return;
+        displayedLocale = current;
+        if (root) {
+            const button = anchor;
+            close();
+            if (button?.isConnected) void open(button);
+        }
+        if (options.mountButton !== false) for (const button of document.querySelectorAll(`button.${BUTTON_CLASS}`)) {
+            button.title = t(NAME);
+            button.setAttribute("aria-label", t(NAME));
+        }
+    }
     const observer = new MutationObserver(() => {
         if (queued) return;
         queued = true;
@@ -1208,6 +1529,10 @@ export function createReactionLibrary(host, options = {}) {
         if (options.mountButton !== false) {
             observer.observe(document.body, { childList: true, subtree: true });
             mount();
+        } else {
+            localeStore = vencord()?.Webpack?.Common?.LocaleStore;
+            localeStore?.addChangeListener?.(refreshLocale);
+            refreshLocale();
         }
         document.addEventListener("pointerdown", outsideClick);
         document.addEventListener("keydown", keydown);
@@ -1225,6 +1550,8 @@ export function createReactionLibrary(host, options = {}) {
     function keydown(event) { if (event.key === "Escape") close(); }
     function stop() {
         started = false;
+        localeStore?.removeChangeListener?.(refreshLocale);
+        localeStore = undefined;
         conversion?.abort();
         close();
         observer.disconnect();

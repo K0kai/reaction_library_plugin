@@ -8,6 +8,18 @@ function section(from, to) {
     return source.slice(source.indexOf(from), source.indexOf(to));
 }
 
+test("interface language follows Discord's locale with English fallback", () => {
+    let selected = "pt-BR";
+    const context = vm.createContext({ vencord: () => ({ Webpack: { Common: { LocaleStore: { get locale() { return selected; } } } } }), document: { documentElement: { lang: "en-US" } } });
+    vm.runInContext(section("    const portuguese =", "    function dataStore(") + "globalThis.translate = t;", context);
+    assert.equal(context.translate("Send clip as voice"), "Enviar trecho como voz");
+    assert.equal(context.translate("Sent reaction.mp4."), "reaction.mp4 enviado.");
+    selected = "pt-PT";
+    assert.equal(context.translate("Add folder"), "Adicionar pasta");
+    selected = "fr";
+    assert.equal(context.translate("Add folder"), "Add folder");
+});
+
 function importer(failAt = Infinity) {
     const records = new Map();
     let writes = 0;
@@ -97,7 +109,7 @@ test("library removal deletes index records and handles without touching origina
     const item = { id: "one", path: "Folder/a.mp4", reference: true, name: "a.mp4", handle: originalHandle };
     const context = vm.createContext({
         importing: false, removing: false, entries: [item], folderHandles: [{ name: "Folder", handle: originalHandle }],
-        KEY: "index", FILE: id => `file:${id}`, confirm: () => true, updateProgress() {}, render() {}, status() {},
+        KEY: "index", FILE: id => `file:${id}`, confirm: () => true, locale: () => "en-US", updateProgress() {}, render() {}, status() {},
         dataStore: () => ({ api: { promisifyRequest: async () => {} }, store: async (_mode, callback) => callback({
             delete: key => removed.push(key), put: (value, key) => records.set(key, value), transaction: {}
         }) })
@@ -271,12 +283,12 @@ test("opening a preview does not send, and closing it pauses playback and releas
     const context = vm.createContext({
         playbackId: 0, playback: undefined,
         root: { querySelector: () => preview },
-        position() {}, status() {},
+        position() {}, status() {}, t: value => value,
         readMedia: async () => new Blob(["audio"]),
         sendEntry() { throw new Error("Preview must not send"); },
         URL: { createObjectURL: () => "blob:preview", revokeObjectURL: url => revoked.push(url) },
-        element(tag, _className, text) {
-            const node = { tag, text, append() {}, addEventListener() {}, pause() { this.paused = true; }, removeAttribute() {}, load() {} };
+        element(tag, className, text) {
+            const node = { tag, className, text, style: {}, currentTime: 0, append() {}, listeners: {}, addEventListener(name, action) { this.listeners[name] = action; }, setAttribute() {}, pause() { this.paused = true; }, removeAttribute() {}, load() {} };
             made.push(node);
             return node;
         }
@@ -288,6 +300,20 @@ test("opening a preview does not send, and closing it pauses playback and releas
     assert.equal(audio.autoplay, undefined);
     assert.equal(audio.src, "blob:preview");
     assert.ok(made.some(node => node.text === "Send as voice"));
+    audio.duration = 10;
+    audio.listeners.loadedmetadata();
+    const [startHandle, endHandle] = made.filter(node => node.className === "rl-clip-handle");
+    for (let i = 0; i < 10; i++) startHandle.listeners.keydown({ key: "ArrowRight", preventDefault() {} });
+    endHandle.listeners.keydown({ key: "ArrowLeft", preventDefault() {} });
+    audio.currentTime = 0;
+    audio.listeners.play();
+    assert.ok(Math.abs(audio.currentTime - 1) < 0.0001);
+    audio.currentTime = 10;
+    audio.listeners.timeupdate();
+    assert.equal(audio.paused, true);
+    assert.ok(Math.abs(audio.currentTime - 9.9) < 0.0001);
+    const playhead = made.find(node => node.className === "rl-clip-playhead");
+    assert.equal(playhead.style.left, "99%");
     context.closePreview();
     assert.equal(audio.paused, true);
     assert.deepEqual(revoked, ["blob:preview"]);
@@ -332,6 +358,7 @@ test("video GIF conversion produces a decodable animation with timing and releas
 
 test("video send options upload the selected conversion while main-card send keeps the original", async () => {
     const sent = [];
+    const statuses = [];
     let uploads = [{ item: { file: new File(["draft"], "existing.txt") } }];
     const common = {
         SelectedChannelStore: { getChannelId: () => "channel" }, ChannelStore: { getChannel: () => ({}) },
@@ -343,25 +370,29 @@ test("video send options upload the selected conversion while main-card send kee
         MessageActions: { getSendMessageOptionsForReply: () => ({}) }
     };
     const original = new Blob(["video"], { type: "video/mp4" });
+    const clipped = new Blob(["clip"], { type: "video/webm" });
     const context = vm.createContext({
         Blob, File, Error, AbortController,
-        busy: false, conversion: undefined, root: undefined, status() {}, close() {}, syncSendState() {},
+        busy: false, conversion: undefined, root: undefined, status: message => statuses.push(message), close() {}, syncSendState() {}, finishSend() {},
         vencord: () => ({ Webpack: { Common: common }, Util: { async sendMessage(_id, _data, _wait, options) { sent.push(options.attachmentsToUpload[0].item.file); } } }),
         readMedia: async () => original,
+        prepareClip: async (blob, kind, range, signal) => { assert.equal(blob, original); assert.equal(kind, "video"); assert.equal(range.start, 1); assert.equal(range.end, 2); assert.equal(signal.aborted, false); return clipped; },
         prepareGif: async (blob, signal) => { assert.equal(blob, original); assert.equal(signal.aborted, false); return new Blob(["GIF89a"], { type: "image/gif" }); },
-        prepareVoice: async (blob, isVideo, signal) => { assert.equal(blob, original); assert.equal(isVideo, true); assert.equal(signal.aborted, false); return { voice: true }; },
-        uploadVoice: async (_common, id, prepared) => { assert.equal(id, "channel"); assert.equal(prepared.voice, true); sent.push("voice"); }
+        prepareVoice: async (blob, isVideo, signal) => { assert.ok(blob === original || blob === clipped); assert.equal(isVideo, true); assert.equal(signal.aborted, false); return { voice: true, clipped: blob === clipped }; },
+        uploadVoice: async (_common, id, prepared) => { assert.equal(id, "channel"); assert.equal(prepared.voice, true); sent.push(prepared.clipped ? "clip voice" : "voice"); }
     });
-    vm.runInContext(section("    async function sendEntry(", "    function closePlayback(") + "globalThis.run = sendEntry;", context);
+    vm.runInContext(section("    async function sendEntry(", "    function finishSend(") + "globalThis.run = sendEntry;", context);
     const entry = { kind: "video", name: "reaction.mp4" };
     await context.run(entry, "gif");
     assert.equal(sent[0].name, "reaction.gif");
     assert.equal(sent[0].type, "image/gif");
     await context.run(entry, "voice");
     assert.equal(sent[1], "voice");
+    await context.run(entry, "voice", { clip: { start: 1, end: 2 } });
+    assert.equal(sent[2], "clip voice", statuses.join(" | "));
     await context.run(entry);
-    assert.equal(sent[2].name, "reaction.mp4");
-    assert.equal(sent[2].type, "video/mp4");
+    assert.equal(sent[3].name, "reaction.mp4");
+    assert.equal(sent[3].type, "video/mp4");
     assert.equal(uploads.length, 1);
     assert.equal(uploads[0].item.file.name, "existing.txt");
 });
@@ -392,7 +423,7 @@ test("closing the library leaves conversion running, reopening shows progress, a
         Blob, File, Error, AbortController,
         busy: false, conversion: undefined, root: initial, lastStatus: "", renderId: 0, editing: null,
         NAME: "Reaction Library", BUTTON_CLASS: "library-button",
-        document: { querySelectorAll: () => [button] }, position() {}, closePlayback() {}, clearPreviews() {},
+        document: { querySelectorAll: () => [button] }, t: message => message, position() {}, closePlayback() {}, clearPreviews() {},
         vencord: () => ({ Webpack: { Common: common }, Util: { async sendMessage(id) { sent.push(id); } } }),
         readMedia: async () => new Blob(["video"]),
         prepareGif: async (_blob, signal) => {
@@ -483,7 +514,7 @@ test("denied folder access leaves references intact and shows a restore button",
     const context = vm.createContext({
         Blob, Error, root: { querySelector: () => area }, folderFilter: "", folderAccess: new Map(),
         entries: [entry], folderHandles: [{ name: "Reactions", handle: { async queryPermission() { return "denied"; }, requestPermission() { requests++; return Promise.resolve("denied"); } } }],
-        status() {}, position() {}, render() { throw new Error("Must not reload previews after access was denied"); },
+        status() {}, t: message => message, position() {}, render() { throw new Error("Must not reload previews after access was denied"); },
         element(tag, _className, text) { const node = { tag, text, children: [], append(...nodes) { this.children.push(...nodes); }, setAttribute() {}, addEventListener(event, action) { this[event] = action; } }; made.push(node); return node; }
     });
     vm.runInContext(section("    async function refreshFolderAccess(", "    async function removeEntries(") + "globalThis.check = refreshFolderAccess;", context);

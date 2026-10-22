@@ -49,7 +49,7 @@ export default definePlugin({
         render({ isAnyChat }) {
             if (!isAnyChat) return null;
             return <ChatBarButton
-                tooltip="Reaction Library"
+                tooltip={/^pt(?:-|$)/i.test(Common.LocaleStore?.locale ?? "") ? "Biblioteca de reações" : "Reaction Library"}
                 onClick={event => { void library?.toggle(event.currentTarget); }}
                 buttonProps={{ "aria-haspopup": "dialog" }}
             >
