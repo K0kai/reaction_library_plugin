@@ -18,6 +18,7 @@ Official custom-plugin instructions: https://docs.vencord.dev/installing/custom-
 ## Features
 
 - Files stay in their original folders; the library stores references and tags.
+- Choose **Set save folder** in the library, then right click an image, video, or audio attachment and select **Add to reaction library**. The media is downloaded into that folder and indexed as a reference. Saving another file with the same name adds a number to its name.
 - Desktop Discord uses the plugin's native folder picker and file reader. Selected folder paths are remembered in `reaction-library-folders.json` inside Discord's user-data directory, so they do not require browser folder permission renewal after a restart.
 - Browser builds use the browser folder picker. Saved read permission may need to be approved again; the library automatically attempts restoration when opened and offers a restore button when needed.
 - Search by file name, folder, and tags; filter by media type or folder; sort by name or import time.

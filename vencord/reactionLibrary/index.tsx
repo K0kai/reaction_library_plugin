@@ -5,6 +5,7 @@
  */
 
 import { ChatBarButton } from "@api/ChatButtons";
+import { addContextMenuPatch, removeContextMenuPatch } from "@api/ContextMenu";
 import * as DataStore from "@api/DataStore";
 import { sendMessage } from "@utils/discord";
 import definePlugin, { PluginNative } from "@utils/types";
@@ -33,7 +34,7 @@ export default definePlugin({
     start() {
         const native = IS_WEB ? undefined : VencordNative.pluginHelpers.ReactionLibrary as PluginNative<typeof import("./native")>;
         library = createReactionLibrary({
-            Api: { DataStore },
+            Api: { DataStore, ContextMenu: { addContextMenuPatch, removeContextMenuPatch } },
             Webpack: { Common: { ...Common, CloudUploader } },
             Util: { sendMessage },
             Native: native

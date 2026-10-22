@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { app, dialog } from "electron";
+import { app, dialog, net } from "electron";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const configPath = () => join(app.getPath("userData"), "reaction-library-folders.json");
+const saveConfigPath = () => join(app.getPath("userData"), "reaction-library-save-folder.json");
 
 async function allowedFolders(): Promise<string[]> {
     try {
@@ -36,6 +37,62 @@ export async function pickFolder(_: unknown) {
     }
     await scan(root);
     return { name: basename(root), root, files };
+}
+
+export async function pickSaveFolder(_: unknown) {
+    const selection = await dialog.showOpenDialog({ title: "Choose a folder for saved reactions", properties: ["openDirectory"] });
+    if (selection.canceled || !selection.filePaths.length) return null;
+    const root = await realpath(selection.filePaths[0]);
+    const allowed = await allowedFolders();
+    if (!allowed.includes(root)) await writeFile(configPath(), JSON.stringify([...allowed, root]), "utf8");
+    await writeFile(saveConfigPath(), JSON.stringify(root), "utf8");
+    return { name: basename(root), root };
+}
+
+export async function saveMedia(_: unknown, selectedRoot: string, filename: string, data: Uint8Array) {
+    const savedRoot: unknown = JSON.parse(await readFile(saveConfigPath(), "utf8"));
+    if (typeof savedRoot !== "string" || selectedRoot !== savedRoot || await realpath(selectedRoot) !== savedRoot) throw new Error("Choose a default save folder in Reaction Library first.");
+    if (!filename || basename(filename) !== filename || /[\\/:*?"<>|\x00-\x1f]/.test(filename) || filename === "." || filename === "..") throw new Error("Invalid media filename.");
+    if (!ArrayBuffer.isView(data) || data.BYTES_PER_ELEMENT !== 1 || !data.byteLength) throw new Error("The media file is empty.");
+    const extension = extname(filename);
+    const stem = filename.slice(0, filename.length - extension.length);
+    for (let number = 1; number <= 10000; number++) {
+        const candidate = number === 1 ? filename : `${stem} (${number})${extension}`;
+        try {
+            await writeFile(join(savedRoot, candidate), data, { flag: "wx" });
+            return { name: candidate, relative: candidate };
+        } catch (error) {
+            if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error;
+        }
+    }
+    throw new Error("Could not find an available filename in the save folder.");
+}
+
+export async function downloadMedia(_: unknown, selectedRoot: string, sourceUrl: string, filename: string) {
+    const savedRoot: unknown = JSON.parse(await readFile(saveConfigPath(), "utf8"));
+    if (typeof savedRoot !== "string" || selectedRoot !== savedRoot || await realpath(selectedRoot) !== savedRoot) throw new Error("Choose a default save folder in Reaction Library first.");
+    const url = new URL(sourceUrl);
+    if (url.protocol !== "https:") throw new Error("This media could not be downloaded.");
+    const response = await net.fetch(url.href);
+    if (!response.ok || new URL(response.url).protocol !== "https:") throw new Error("This media could not be downloaded.");
+    const limit = 256 * 1024 * 1024;
+    if (Number(response.headers.get("content-length")) > limit) throw new Error("This media is too large to save (256 MiB limit).");
+    const type = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (type && type !== "application/octet-stream" && !/^(image|video|audio)\//.test(type)) throw new Error("The selected file is not supported media.");
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    if (!response.body) throw new Error("This media could not be downloaded.");
+    for await (const chunk of response.body) {
+        size += chunk.byteLength;
+        if (size > limit) throw new Error("This media is too large to save (256 MiB limit).");
+        chunks.push(chunk);
+    }
+    if (!size) throw new Error("This media could not be downloaded.");
+    const extensions: Record<string, string> = { "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4", "video/webm": ".webm", "audio/mpeg": ".mp3", "audio/ogg": ".ogg", "audio/mp4": ".m4a", "audio/wav": ".wav" };
+    let name = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 180) || `reaction-${Date.now()}`;
+    if (!extname(name) && extensions[type]) name += extensions[type];
+    const saved = await saveMedia(null, selectedRoot, name, Buffer.concat(chunks.map(chunk => Buffer.from(chunk)), size));
+    return { ...saved, type };
 }
 
 export async function readMedia(_: unknown, selectedRoot: string, file: string) {

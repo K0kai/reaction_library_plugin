@@ -4,7 +4,7 @@
 
 The Windows setup ZIP includes the `ReactionLibrary-Setup.exe` launcher, which has an English and Portuguese language selector, and guides in both languages.
 
-The chat button opens a Discord themed library. The Dorion plugin's **Add folder** stores references to supported images, GIFs, videos, and audio files. Media stays in its original location. Folder scanning and indexing show live progress, and items appear after each batch of 20 references. The picker searches file names, folder paths, and user tags; filters by folder and media type; and sorts by name or import time. Clicking an item starts its upload and sends it to the current chat.
+The chat button opens a Discord themed library. The Dorion plugin's **Add folder** stores references to supported images, GIFs, videos, and audio files. Media stays in its original location. Use **Set save folder** to choose where Discord media should be saved. Right click an image, video, or audio attachment and choose **Add to reaction library** to download it into that folder and add its reference. Folder scanning and indexing show live progress, and items appear after each batch of 20 references. The picker searches file names, folder paths, and user tags; filters by folder and media type; and sorts by name or import time. Clicking an item starts its upload and sends it to the current chat.
 
 The plugin interface follows Discord's selected language for English and Portuguese (Brazilian or European). Other client languages use English. Changing Discord's language updates the picker without restarting the plugin.
 
@@ -22,9 +22,9 @@ Image and video previews load only near the visible area, with at most three fil
 
 Clicking a media card still sends the original file immediately. Video and audio cards also have a separate **Preview** button, which opens playback controls without sending. Both offer **Send as voice** to send a Discord voice message with duration and waveform metadata. Video cards and previews additionally offer **Send as GIF**. All conversion output is temporary upload data in memory: no converted media is saved to disk or to the library, and the original remains unchanged.
 
-Each card now keeps secondary actions in a compact menu. Images and GIFs can be sent as spoilers there; audio and video also offer preview, voice, and GIF conversion where applicable. The audio and video preview has a trim timeline with draggable start and end handles for sending a duration clip as a file, spoiler, or voice message. The handles also support arrow keys. Clips are recorded in memory as WebM using the client's media support, so recording takes approximately the selected duration and unsupported codecs report an error.
+Each card now keeps secondary actions in a compact menu. Images and GIFs can be sent as spoilers there; audio and video also offer preview, voice, and GIF conversion where applicable. The audio and video preview has a trim timeline with draggable start and end handles for sending a duration clip as a file, spoiler, or voice message. The handles also support arrow keys. File and spoiler clips are recorded in memory as WebM using the client's media support, so recording takes approximately the selected duration and unsupported codecs report an error. Voice clips select the chosen audio interval during voice conversion and do not use the WebM clip recorder.
 
-Preview playback follows the selected trim range. Playing outside the range starts at its beginning, playback stops at its end, and a playhead on the timeline shows the current position.
+Preview playback follows the selected trim range. **Play clip** seeks to the beginning before starting, playback stops at the end, and a playhead on the timeline shows the current position. The player's own play control also waits for a pending trim seek before playback resumes.
 
 Voice conversion uses existing OGG Opus audio directly and encodes other decodable audio to mono Opus when Dorion supports WebCodecs encoding. For videos, it first tries direct audio decoding, then an in-memory capture of the video's audio track. The fallback takes roughly the video's duration, plays silently, and shows progress. Videos with no decodable audio track report an error. Channel voice-message permissions apply.
 
@@ -40,7 +40,7 @@ Use an item's **Remove** button to remove it from the library, or choose a folde
 
 ## Vencord plugin
 
-For friends on Windows x64 with Vencord already installed, run `releases/ReactionLibrary-Setup.exe`, select a language, and click **Download setup**. The EXE fetches the latest published GitHub release, verifies GitHub's SHA-256 asset digests, the published checksum file, and every packaged file, then shows detection, review, progress, and restore controls in the same window. PowerShell runs only as a hidden background worker for the existing safety and build logic. Setup builds separately against the tested revision and backs up the existing build, loader, settings, and themes before applying changes. **Restore previous installation** recovers the verified snapshot. See `installer/README.txt` for requirements and limits.
+For users on Windows x64 with Vencord already installed, run `releases/ReactionLibrary-Setup.exe`, select a language, and click **Download setup**. The EXE fetches the latest published GitHub release, verifies GitHub's SHA-256 asset digests, the published checksum file, and every packaged file, then shows detection, review, progress, and restore controls in the same window. PowerShell runs only as a hidden background worker for the existing safety and build logic. Setup builds separately against the tested revision and backs up the existing build, loader, settings, and themes before applying changes. **Restore previous installation** recovers the verified snapshot. See `installer/README.txt` for requirements and limits.
 
 Run `powershell -NoProfile -ExecutionPolicy Bypass -File package-windows.ps1` to regenerate the Windows setup ZIP and executable after updating `vencord/reactionLibrary`. Publish the EXE, ZIP, and both `.sha256` files as assets of the same GitHub release. Run `powershell -NoProfile -ExecutionPolicy Bypass -File test/installer.test.ps1` and `test/installer-bootstrap.test.ps1` to check the setup and update flow without patching Discord. The launcher requires a public GitHub release with SHA-256 asset digests; it stops if the release is unavailable or invalid.
 
@@ -50,7 +50,7 @@ The helper reuses a versioned tool cache after checking every cached file. Succe
 
 The complete maintained plugin is packaged in `vencord/reactionLibrary/`, with a Vencord entry point, native desktop folder access, and the shared runtime including GIF encoding. See that folder's README for installation instructions. Copy the whole folder into `Vencord/src/userplugins/reactionLibrary/` and rebuild Vencord. No Equicord installation or extra GIF dependency is needed to install this package.
 
-Desktop Vencord remembers selected folder paths through its native helper, which reads original files on demand and rejects reads outside selected folders. The native helper only writes its folder-path configuration; it does not save converted media or copy imported files.
+Desktop Vencord remembers selected folder paths through its native helper, which reads original files on demand and rejects reads outside selected folders. It writes media downloaded through **Add to reaction library** only into the selected save folder. It does not save converted media or copy imported files.
 
 ## Earlier Equicord source plugin
 

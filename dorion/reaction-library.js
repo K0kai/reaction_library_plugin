@@ -891,6 +891,9 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     let folderFilter = "";
     let removing = false;
     let folderHandles = [];
+    let defaultFolder;
+    let saveQueue = Promise.resolve();
+    const contextPatches = [];
     let accessWarning = false;
     let busy = false;
     let store;
@@ -941,6 +944,8 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         .${ROOT_CLASS} .rl-more { display: block; margin: 12px auto 0; }
         .${ROOT_CLASS} .rl-folders { display: flex; gap: 6px; padding: 0 12px 10px; }
         .${ROOT_CLASS} .rl-folders select { flex: 1; min-width: 0; }
+        .${ROOT_CLASS} .rl-save-folder { display: flex; align-items: center; gap: 8px; padding: 0 12px 10px; color: var(--rl-muted); font-size: 12px; }
+        .${ROOT_CLASS} .rl-save-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .${ROOT_CLASS} .rl-remove { border: 0; border-radius: 4px; padding: 5px 7px; background: #f23f431f; color: var(--text-danger, #ff858b); cursor: pointer; }
         .${ROOT_CLASS} .rl-item-footer { display: flex; align-items: center; }
         .${ROOT_CLASS} .rl-item-footer .rl-edit { flex: 1; min-width: 0; }
@@ -1032,9 +1037,11 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       "Send as voice": "Enviar como voz",
       "Send as GIF": "Enviar como GIF",
       "Close preview": "Fechar pr\xE9via",
+      "The preview could not seek to the clip start. Try playing again.": "A pr\xE9via n\xE3o conseguiu ir ao in\xEDcio do trecho. Tente reproduzir novamente.",
       "Clip start": "In\xEDcio do trecho",
       "Clip end": "Fim do trecho",
       "Send clip": "Enviar trecho",
+      "Play clip": "Reproduzir trecho",
       "Send clip as spoiler": "Enviar trecho como spoiler",
       "Send clip as voice": "Enviar trecho como voz",
       "Your client could not decode this video. You can send the original file instead.": "Seu cliente n\xE3o conseguiu decodificar este v\xEDdeo. Voc\xEA pode enviar o arquivo original.",
@@ -1087,6 +1094,16 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       "Oldest": "Mais antigos",
       "Name": "Nome",
       "Add folder": "Adicionar pasta",
+      "Set save folder": "Definir pasta para salvar",
+      "Save folder": "Pasta para salvar",
+      "No save folder selected": "Nenhuma pasta para salvar selecionada",
+      "Add to reaction library": "Adicionar \xE0 biblioteca de rea\xE7\xF5es",
+      "Choose a default save folder in Reaction Library first.": "Escolha primeiro uma pasta padr\xE3o para salvar na Biblioteca de rea\xE7\xF5es.",
+      "This media could not be downloaded.": "N\xE3o foi poss\xEDvel baixar esta m\xEDdia.",
+      "This media is too large to save (256 MiB limit).": "Esta m\xEDdia \xE9 grande demais para salvar (limite de 256 MiB).",
+      "The selected file is not supported media.": "O arquivo selecionado n\xE3o \xE9 uma m\xEDdia compat\xEDvel.",
+      "Save folder access expired. Set the save folder again in Reaction Library.": "O acesso \xE0 pasta para salvar expirou. Defina a pasta novamente na Biblioteca de rea\xE7\xF5es.",
+      "The save folder is unavailable. Open Reaction Library and set the save folder again.": "A pasta para salvar n\xE3o est\xE1 dispon\xEDvel. Abra a Biblioteca de rea\xE7\xF5es e defina a pasta novamente.",
       "Library folder": "Pasta da biblioteca",
       "Reconnect": "Reconectar",
       "Remove folder": "Remover pasta",
@@ -1169,6 +1186,8 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           const cleaned = await cleanupLegacyCopies();
           entries = await api.get(KEY, store2) ?? [];
           folderHandles = await api.get("folders", store2) ?? [];
+          defaultFolder = await api.get("defaultFolder", store2) ?? void 0;
+          updateSaveFolderLabel();
           await refreshFolderAccess();
           await restoreAccessOnOpen();
           if (!panelSize) {
@@ -1270,6 +1289,218 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         render();
       }
     }
+    function updateSaveFolderLabel() {
+      const label = root?.querySelector(".rl-save-folder-label");
+      if (label) label.textContent = defaultFolder ? `${t("Save folder")}: ${defaultFolder.name}` : t("No save folder selected");
+    }
+    async function chooseSaveFolder() {
+      const native = vencord()?.Native;
+      if (!native?.pickSaveFolder && !globalThis.showDirectoryPicker) return status("This client version does not support persistent folder references. No files were copied.");
+      let selected;
+      try {
+        selected = native?.pickSaveFolder ? await native.pickSaveFolder() : await globalThis.showDirectoryPicker({ mode: "readwrite" });
+      } catch (error) {
+        if (error.name !== "AbortError") status(error.message);
+        return;
+      }
+      if (!selected) return;
+      try {
+        const { api, store: store2 } = dataStore();
+        const saved = await api.get("folders", store2) ?? [];
+        const handle = native?.pickSaveFolder ? { kind: "native-directory", root: selected.root } : selected;
+        let name = selected.name;
+        let suffix = 2;
+        while (saved.some((folder2) => folder2.name === name && (handle.root ? folder2.handle.root !== handle.root : folder2.handle !== handle))) name = `${selected.name} (${suffix++})`;
+        const folder = { name, handle };
+        const next = [...saved.filter((item) => item.name !== name), folder];
+        await api.setMany([["folders", next], ["defaultFolder", folder]], store2);
+        folderHandles = next;
+        defaultFolder = folder;
+        folderAccess.set(name, "granted");
+        updateSaveFolderLabel();
+        updateFolders();
+        status(`${t("Save folder")}: ${name}`);
+      } catch (error) {
+        status(error.message);
+      }
+    }
+    function contextMedia(navId, props) {
+      if (!props || navId === "image-context" && "href" in props && !props.src) return null;
+      const target = props.target;
+      const media = target?.closest?.("img,video,audio");
+      const candidates = [props.itemSrc, props.src, props.itemHref, props.href, media?.currentSrc, media?.src];
+      const candidate = candidates.find((value) => typeof value === "string" && mediaKind({ name: value.split("?")[0], type: "" })) ?? (media && candidates.find((value) => typeof value === "string"));
+      if (!candidate) return null;
+      let url;
+      try {
+        url = new URL(candidate, location.href);
+      } catch {
+        return null;
+      }
+      if (url.protocol !== "https:" && url.protocol !== "blob:") return null;
+      let filename;
+      try {
+        filename = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      } catch {
+        filename = url.pathname.split("/").pop() ?? "";
+      }
+      filename = filename.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_");
+      const attachmentKey = (value) => {
+        try {
+          const path = new URL(value).pathname;
+          const match = path.match(/\/attachments\/\d+\/(\d+)\//);
+          return match?.[1] ?? path;
+        } catch {
+          return "";
+        }
+      };
+      const key = attachmentKey(candidate);
+      const attachment = props.message?.attachments?.find((item) => [item.url, item.proxy_url].some((value) => value && attachmentKey(value) === key));
+      const name = attachment?.filename ?? filename;
+      if (!mediaKind({ name, type: "" }) && !media) return null;
+      const urls = [...new Set([attachment?.url, attachment?.proxy_url, url.href].filter((value) => typeof value === "string"))];
+      return { urls, name };
+    }
+    async function saveContextMedia(source) {
+      const { api, store: store2 } = dataStore();
+      const folder = await api.get("defaultFolder", store2) ?? defaultFolder;
+      if (!folder) throw new Error("Choose a default save folder in Reaction Library first.");
+      const native = vencord()?.Native;
+      if (!native?.saveMedia) {
+        let permission;
+        try {
+          permission = await folder.handle.queryPermission({ mode: "readwrite" });
+        } catch (error) {
+          if (error.name === "NotFoundError") throw new Error("The save folder is unavailable. Open Reaction Library and set the save folder again.");
+          throw error;
+        }
+        if (permission !== "granted") throw new Error("Save folder access expired. Set the save folder again in Reaction Library.");
+      }
+      let saved;
+      let kind;
+      const urls = source.urls ?? [source.url];
+      if (native?.downloadMedia && urls.some((url) => url.startsWith("https:"))) {
+        let lastError;
+        for (const url of urls.filter((url2) => url2.startsWith("https:"))) {
+          try {
+            saved = await native.downloadMedia(folder.handle.root, url, source.name);
+            break;
+          } catch (error) {
+            if (/too large|not supported|default save folder/i.test(error.message)) throw error;
+            lastError = error;
+          }
+        }
+        if (!saved) throw lastError;
+        kind = mediaKind({ name: saved.name, type: saved.type });
+        if (!kind) throw new Error("The selected file is not supported media.");
+        saved.handle = { kind: "native-file", root: folder.handle.root, relative: saved.relative };
+      } else {
+        const limit = 256 * 1024 * 1024;
+        const nativeFetch = globalThis.VencordNative?.pluginHelpers?.FileUpload;
+        let blob;
+        let lastError;
+        for (const url of urls) {
+          try {
+            if (nativeFetch?.fetchFile && url.startsWith("https:")) {
+              const result = await nativeFetch.fetchFile(url);
+              if (!result?.success || !result.data) throw new Error(result?.error || "This media could not be downloaded.");
+              blob = new Blob([result.data], { type: result.contentType ?? "" });
+            } else {
+              const response = await fetch(url, { credentials: "omit" });
+              if (!response.ok) throw new Error("This media could not be downloaded.");
+              if (Number(response.headers.get("content-length")) > limit) throw new Error("This media is too large to save (256 MiB limit).");
+              blob = await response.blob();
+            }
+            break;
+          } catch (error) {
+            if (/too large|not supported/i.test(error.message)) throw error;
+            lastError = error;
+          }
+        }
+        if (!blob) throw lastError;
+        if (!blob.size || blob.size > limit) throw new Error(blob.size ? "This media is too large to save (256 MiB limit)." : "This media could not be downloaded.");
+        const type = blob.type.split(";")[0];
+        if (type && type !== "application/octet-stream" && !/^(image|video|audio)\//.test(type)) throw new Error("The selected file is not supported media.");
+        const extensions = { "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4", "video/webm": ".webm", "audio/mpeg": ".mp3", "audio/ogg": ".ogg", "audio/mp4": ".m4a", "audio/wav": ".wav" };
+        let name = source.name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 180) || `reaction-${Date.now()}`;
+        if (!mediaKind({ name, type: "" }) && extensions[type]) name += extensions[type];
+        kind = mediaKind({ name, type });
+        if (!kind) throw new Error("The selected file is not supported media.");
+        if (native?.saveMedia) {
+          saved = await native.saveMedia(folder.handle.root, name, new Uint8Array(await blob.arrayBuffer()));
+          saved.handle = { kind: "native-file", root: folder.handle.root, relative: saved.relative };
+        } else {
+          const extension = name.match(/\.[^.]+$/)?.[0] ?? "";
+          const stem = name.slice(0, name.length - extension.length);
+          try {
+            for (let number = 1; number <= 1e4; number++) {
+              const candidate = number === 1 ? name : `${stem} (${number})${extension}`;
+              let exists = false;
+              try {
+                await folder.handle.getFileHandle(candidate);
+                exists = true;
+              } catch (error) {
+                if (error.name !== "NotFoundError") throw error;
+              }
+              if (exists) continue;
+              const handle = await folder.handle.getFileHandle(candidate, { create: true });
+              const writer = await handle.createWritable();
+              try {
+                await writer.write(blob);
+                await writer.close();
+              } catch (error) {
+                await writer.abort().catch(() => {
+                });
+                throw error;
+              }
+              saved = { name: candidate, relative: candidate, handle };
+              break;
+            }
+          } catch (error) {
+            if (error.name === "NotFoundError") throw new Error("The save folder is unavailable. Open Reaction Library and set the save folder again.");
+            throw error;
+          }
+          if (!saved) throw new Error("Could not find an available filename in the save folder.");
+        }
+      }
+      const latest = await api.get(KEY, store2) ?? [];
+      const entry = { id: crypto.randomUUID(), name: saved.name, path: `${folder.name}/${saved.relative}`, kind, tags: [], added: Date.now(), reference: true };
+      await api.setMany([[FILE(entry.id), saved.handle], [KEY, [...latest, entry]]], store2);
+      entries = [...latest, entry];
+      defaultFolder = folder;
+      render();
+      const message = /^pt/i.test(locale()) ? `${saved.name} adicionado \xE0 biblioteca de rea\xE7\xF5es.` : `Added ${saved.name} to Reaction Library.`;
+      status(message);
+      vencord()?.Webpack?.Common?.showToast?.({ text: message, variant: "success" });
+    }
+    function queueContextSave(source) {
+      const job = saveQueue.then(() => saveContextMedia(source));
+      saveQueue = job.catch(() => {
+      });
+      void job.catch((error) => {
+        status(error.message);
+        vencord()?.Webpack?.Common?.showToast?.({ text: t(error.message), variant: "critical" });
+      });
+    }
+    function attachContextMenus() {
+      if (contextPatches.length) return;
+      const common = vencord()?.Webpack?.Common;
+      const api = vencord()?.Api?.ContextMenu;
+      if (!api?.addContextMenuPatch || !common?.Menu?.MenuItem || !common?.React?.createElement) return;
+      for (const navId of ["message", "image-context"]) {
+        const patch = (children, props) => {
+          const source = contextMedia(navId, props);
+          if (!source) return;
+          children.push(common.React.createElement(common.Menu.MenuItem, {
+            id: "reaction-library-add-media",
+            label: t("Add to reaction library"),
+            action: () => queueContextSave(source)
+          }));
+        };
+        api.addContextMenuPatch(navId, patch);
+        contextPatches.push({ api, navId, patch });
+      }
+    }
     async function importFolder(files) {
       const { api, store: store2 } = dataStore();
       updateProgress();
@@ -1368,7 +1599,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         if (!channel) throw new Error("Open a chat before sending a reaction.");
         let blob = await readMedia(entry, true);
         signal?.throwIfAborted();
-        if (options2.clip) {
+        if (options2.clip && !voice) {
           status("Preparing clip\u2026");
           blob = await prepareClip(blob, entry.kind, options2.clip, signal);
           signal?.throwIfAborted();
@@ -1377,7 +1608,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           if (entry.kind !== "audio" && entry.kind !== "video") throw new Error("Choose audio or video to send as a voice message.");
           if (channel.guild_id && (!common.PermissionStore.can(common.PermissionsBits.SEND_VOICE_MESSAGES, channel) || !common.PermissionStore.can(common.PermissionsBits.SEND_MESSAGES, channel))) throw new Error("You cannot send voice messages in this channel.");
           status("Preparing voice message\u2026");
-          const prepared = await prepareVoice(blob, entry.kind === "video", signal);
+          const prepared = await prepareVoice(blob, entry.kind === "video", signal, options2.clip);
           signal.throwIfAborted();
           conversion = void 0;
           status("Uploading voice message\u2026");
@@ -1447,8 +1678,16 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           media.currentTime = start2;
         });
         if (!media.captureStream) throw new Error("Clip recording is unavailable for this format in this client.");
+        await media.play();
+        signal?.throwIfAborted();
         stream = media.captureStream();
-        const mimeType = kind === "video" ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"] : ["audio/webm;codecs=opus", "audio/webm"];
+        if (!stream.getTracks().some((track) => track.readyState === "live")) throw new Error("Clip recording is unavailable for this format in this client.");
+        media.pause();
+        if (Math.abs(media.currentTime - start2) > 5e-3) await waitForMedia(media, "seeked", signal, () => {
+          media.currentTime = start2;
+        });
+        signal?.throwIfAborted();
+        const mimeType = kind === "video" ? ["video/webm", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus"] : ["audio/webm", "audio/webm;codecs=opus"];
         const supported = mimeType.find((type) => MediaRecorder.isTypeSupported(type));
         if (!supported) throw new Error("This client cannot encode a clip of this type.");
         recorder = new MediaRecorder(stream, { mimeType: supported });
@@ -1495,7 +1734,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           media.addEventListener("ended", stop2, { once: true });
           try {
             recorder.start();
-            media.play().catch(fail);
+            Promise.resolve(media.play()).catch(fail);
           } catch (error) {
             fail(error);
           }
@@ -1566,6 +1805,8 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         let duration = 0;
         let start2 = 0;
         let end = 0;
+        let playRequested = false;
+        let seekTimer;
         const timeLabel = (value) => `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toFixed(1).padStart(4, "0")}`;
         const updatePlayhead = () => {
           playhead.style.left = `${duration ? Math.max(0, Math.min(100, media.currentTime / duration * 100)) : 0}%`;
@@ -1591,21 +1832,46 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           for (const handle of [startHandle, endHandle]) handle.setAttribute("aria-valuemax", String(duration));
           updateClip();
         }, { once: true });
-        media.addEventListener("play", () => {
-          if (duration && (media.currentTime < start2 || media.currentTime >= end)) media.currentTime = start2;
-        });
-        media.addEventListener("seeking", () => {
-          if (!duration) return;
-          if (media.currentTime < start2) media.currentTime = start2;
-          else if (media.currentTime > end) media.currentTime = end;
+        const resumeSelection = () => {
+          if (!playRequested || playback?.media !== media || media.seeking) return;
+          if (Math.abs(media.currentTime - start2) >= 0.025) {
+            media.currentTime = start2;
+            return;
+          }
+          clearTimeout(seekTimer);
+          playRequested = false;
+          void media.play().catch((error) => status(error.message));
+        };
+        const playSelection = () => {
+          if (!duration || playRequested) return;
+          playRequested = true;
+          media.pause();
+          const needsSeek = media.seeking || Math.abs(media.currentTime - start2) >= 0.025;
+          if (Math.abs(media.currentTime - start2) >= 0.025) media.currentTime = start2;
+          seekTimer = setTimeout(() => {
+            if (!playRequested) return;
+            playRequested = false;
+            status("The preview could not seek to the clip start. Try playing again.");
+          }, 5e3);
+          if (needsSeek) setTimeout(resumeSelection, 50);
+          else resumeSelection();
+        };
+        media.addEventListener("seeked", () => {
           updatePlayhead();
+          resumeSelection();
+        });
+        media.addEventListener("emptied", () => {
+          playRequested = false;
+          clearTimeout(seekTimer);
+        });
+        media.addEventListener("play", () => {
+          if (duration && !playRequested && (media.seeking || media.currentTime < start2 - 0.025 || media.currentTime >= end)) playSelection();
         });
         media.addEventListener("timeupdate", () => {
           if (!duration) return;
-          if (media.currentTime < start2) media.currentTime = start2;
-          else if (media.currentTime >= end) {
-            media.pause();
-            if (media.currentTime > end) media.currentTime = end;
+          if (!media.paused && !media.seeking && !playRequested) {
+            if (media.currentTime < start2 - 0.025) playSelection();
+            else if (media.currentTime >= end) media.pause();
           }
           updatePlayhead();
         });
@@ -1614,7 +1880,10 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           const minimum = Math.min(0.1, duration);
           if (which === "start") start2 = Math.max(0, Math.min(end - minimum, value));
           else end = Math.min(duration, Math.max(start2 + minimum, value));
-          media.currentTime = which === "start" ? start2 : end;
+          playRequested = false;
+          clearTimeout(seekTimer);
+          media.pause();
+          if (which === "start" || media.currentTime < start2 || media.currentTime >= end) media.currentTime = start2;
           updateClip();
         };
         for (const [handle, which, label] of [[startHandle, "start", "Clip start"], [endHandle, "end", "Clip end"]]) {
@@ -1647,6 +1916,9 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         track.append(selection, playhead, startHandle, endHandle);
         times.append(startTime, durationTime, endTime);
         updateClip();
+        const playClip = element("button", "rl-primary", "Play clip");
+        playClip.type = "button";
+        playClip.addEventListener("click", playSelection);
         const clipSend = element("button", "rl-primary", "Send clip");
         clipSend.type = "button";
         clipSend.addEventListener("click", () => void sendEntry(entry, "file", { clip: { start: start2, end } }));
@@ -1657,7 +1929,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         clipVoice.type = "button";
         clipVoice.addEventListener("click", () => void sendEntry(entry, "voice", { clip: { start: start2, end } }));
         const clipActions = element("div", "rl-clip-actions");
-        clipActions.append(clipSend, clipSpoiler, clipVoice);
+        clipActions.append(playClip, clipSend, clipSpoiler, clipVoice);
         clip.append(track, times, clipActions);
         area.append(clip);
         position();
@@ -1768,9 +2040,11 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       let recorder;
       try {
         if (!video.captureStream || !globalThis.MediaRecorder) throw new Error("This client version cannot extract this video's audio. Try a browser-supported video format.");
+        await video.play();
+        signal?.throwIfAborted();
         stream = video.captureStream();
         const tracks = stream.getAudioTracks();
-        if (!tracks.length) throw new Error("No supported audio track was found in this video.");
+        if (!tracks.some((track) => track.readyState === "live")) throw new Error("No supported audio track was found in this video.");
         const mimeType = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
         if (!mimeType) throw new Error("Audio extraction is unavailable in this client version.");
         recorder = new MediaRecorder(new MediaStream(tracks), { mimeType });
@@ -1814,10 +2088,6 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           try {
             signal?.throwIfAborted();
             recorder.start();
-            video.play().catch((error) => {
-              clean();
-              reject(error);
-            });
           } catch (error) {
             clean();
             reject(error);
@@ -1861,7 +2131,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       view.setUint32(22, crc >>> 0, true);
       return page;
     }
-    async function prepareVoice(blob, video = false, signal) {
+    async function prepareVoice(blob, video = false, signal, clip) {
       const context = new AudioContext();
       let decoded;
       try {
@@ -1876,19 +2146,21 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       } finally {
         await context.close();
       }
-      const { duration } = decoded;
+      const start2 = clip?.start ?? 0;
+      const end = clip ? Math.min(clip.end, decoded.duration) : decoded.duration;
+      const duration = end - start2;
       signal?.throwIfAborted();
-      if (!duration || !Number.isFinite(duration)) throw new Error("This audio file is empty or could not be decoded.");
+      if (!Number.isFinite(duration) || duration <= 0 || start2 < 0 || clip && clip.end - start2 < 0.1) throw new Error("This audio file is empty or could not be decoded.");
       const offline = new OfflineAudioContext(1, Math.ceil(duration * 48e3), 48e3);
       const source = offline.createBufferSource();
       source.buffer = decoded;
       source.connect(offline.destination);
-      source.start();
+      source.start(0, start2, duration);
       const samples = (await offline.startRendering()).getChannelData(0);
       const wave = waveform(samples, duration);
       const headerBytes = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
       const signature = new TextDecoder().decode(headerBytes);
-      if (signature.startsWith("OggS") && signature.includes("OpusHead")) return { blob, duration, waveform: wave };
+      if (!clip && signature.startsWith("OggS") && signature.includes("OpusHead")) return { blob, duration, waveform: wave };
       if (!globalThis.AudioEncoder || !globalThis.AudioData) throw new Error("Voice conversion is unavailable in this client version. You can send this as a file, or use OGG Opus audio.");
       const config = { codec: "opus", sampleRate: 48e3, numberOfChannels: 1, bitrate: 32e3, opus: { frameDuration: 2e4 } };
       if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error("This client version cannot encode voice messages. Send the original file instead.");
@@ -2442,13 +2714,21 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         if (folderFilter) void removeEntries(entries.filter((entry) => entry.path.startsWith(`${folderFilter}/`)));
       });
       folders.append(folderSelect, reconnectButton, removeFolder);
+      const saveFolderRow = element("div", "rl-save-folder");
+      const saveFolderButton = element("button", "rl-primary", "Set save folder");
+      saveFolderButton.type = "button";
+      saveFolderButton.addEventListener("click", () => void chooseSaveFolder());
+      const saveFolderLabel = element("span", "rl-save-folder-label");
+      saveFolderRow.append(saveFolderButton, saveFolderLabel);
+      updateSaveFolderLabel();
       const progress = element("div", "rl-progress");
       progress.setAttribute("role", "status");
       progress.setAttribute("aria-live", "polite");
       const access = element("div", "rl-access");
       access.setAttribute("role", "status");
       access.setAttribute("aria-live", "polite");
-      root.append(add, folders, access, progress, element("div", "rl-preview"), element("div", "rl-scroll"), element("div", "rl-status"));
+      root.append(add, folders, saveFolderRow, access, progress, element("div", "rl-preview"), element("div", "rl-scroll"), element("div", "rl-status"));
+      updateSaveFolderLabel();
       document.body.append(root);
       if (lastStatus) status(lastStatus);
       else syncSendState();
@@ -2518,6 +2798,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       style = document.createElement("style");
       style.textContent = css;
       document.head.append(style);
+      attachContextMenus();
       if (options.mountButton !== false) {
         observer.observe(document.body, { childList: true, subtree: true });
         mount();
@@ -2544,6 +2825,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     }
     function stop() {
       started = false;
+      for (const { api, navId, patch } of contextPatches.splice(0)) api.removeContextMenuPatch?.(navId, patch);
       localeStore?.removeChangeListener?.(refreshLocale);
       localeStore = void 0;
       conversion?.abort();

@@ -20,6 +20,59 @@ test("interface language follows Discord's locale with English fallback", () => 
     assert.equal(context.translate("Add folder"), "Add folder");
 });
 
+test("desktop fallback saves Discord media without using the page fetch", async () => {
+    const written = [];
+    const stored = new Map();
+    let missingSaveFolder = false;
+    const folder = { name: "Saved", handle: {
+        async queryPermission() { return "granted"; },
+        async *entries() {},
+        async getFileHandle(name, options) {
+            if (!options?.create) throw Object.assign(new Error("missing"), { name: "NotFoundError" });
+            if (missingSaveFolder) throw Object.assign(new Error("A requested file or directory could not be found at this time"), { name: "NotFoundError" });
+            return { name, async createWritable() { return { async write(blob) { written.push(blob); }, async close() {} }; } };
+        }
+    } };
+    let nativeCalls = 0;
+    const context = vm.createContext({
+        Blob, crypto: require("node:crypto").webcrypto,
+        VencordNative: { pluginHelpers: { FileUpload: { async fetchFile() {
+            nativeCalls++;
+            if (nativeCalls === 1) return { success: false, error: "Failed to fetch" };
+            return { success: true, data: new TextEncoder().encode("image bytes"), contentType: "image/png" };
+        } } } },
+        fetch() { throw new Error("page fetch must not run"); },
+        defaultFolder: folder, entries: [], KEY: "index", FILE: id => `file:${id}`,
+        dataStore: () => ({ store: null, api: {
+            get: async key => key === "defaultFolder" ? folder : [],
+            setMany: async pairs => pairs.forEach(([key, value]) => stored.set(key, value))
+        } }),
+        vencord: () => ({ Webpack: { Common: {} } }), locale: () => "en-US", status() {}, render() {},
+        t: value => value
+    });
+    vm.runInContext(section("    function mediaKind(", "    function element(") + section("    async function saveContextMedia(", "    function queueContextSave(") + "globalThis.run = saveContextMedia;", context);
+    await context.run({ urls: ["https://cdn.discordapp.com/attachments/1/2/reaction.png", "https://media.discordapp.net/attachments/1/2/reaction.png"], name: "reaction.png" });
+    assert.equal(nativeCalls, 2);
+    assert.equal(written.length, 1);
+    assert.equal(stored.get("index")[0].path, "Saved/reaction.png");
+    missingSaveFolder = true;
+    await assert.rejects(context.run({ url: "https://cdn.discordapp.com/attachments/1/2/reaction.png", name: "reaction.png" }), /set the save folder again/);
+});
+
+test("spoiler preview resolves to the original attachment with proxy fallback", () => {
+    const context = vm.createContext({ URL, location: { href: "https://discord.com/channels/1/2" } });
+    vm.runInContext(section("    function mediaKind(", "    function element(") + section("    function contextMedia(", "    async function saveContextMedia(") + "globalThis.resolve = contextMedia;", context);
+    const original = "https://cdn.discordapp.com/attachments/1/123/SPOILER_clip.mp4?ex=original";
+    const proxy = "https://media.discordapp.net/attachments/1/123/SPOILER_clip.mp4?ex=proxy";
+    const preview = "https://media.discordapp.net/attachments/1/123/SPOILER_clip.mp4?ex=preview&width=400";
+    const source = context.resolve("message", {
+        itemSrc: preview,
+        message: { attachments: [{ url: original, proxy_url: proxy, filename: "SPOILER_clip.mp4" }] }
+    });
+    assert.equal(source.name, "SPOILER_clip.mp4");
+    assert.deepEqual(Array.from(source.urls), [original, proxy, preview]);
+});
+
 function importer(failAt = Infinity) {
     const records = new Map();
     let writes = 0;
@@ -189,6 +242,9 @@ test("legacy cleanup removes only copied media, including orphans, preserving ha
 test("voice preparation encodes mono Opus into Ogg with duration and waveform metadata", async () => {
     let config;
     let rejectVideo = false;
+    let clipMode = false;
+    let sourceStart;
+    let renderedFrames;
     let extractions = 0;
     const samples = new Float32Array(1920).fill(0.25);
     const context = vm.createContext({
@@ -197,15 +253,16 @@ test("voice preparation encodes mono Opus into Ogg with duration and waveform me
         AudioContext: class {
             async decodeAudioData() {
                 if (rejectVideo) { rejectVideo = false; throw new Error("Video container requires extraction"); }
-                return { duration: 0.04 };
+                return { duration: clipMode ? 0.4 : 0.04 };
             }
             async close() {}
         },
         status() {},
         extractVideoAudio: async () => { extractions++; return new Blob(["extracted audio"]); },
         OfflineAudioContext: class {
-            createBufferSource() { return { connect() {}, start() {} }; }
-            async startRendering() { return { getChannelData: () => samples }; }
+            constructor(_channels, frames) { renderedFrames = frames; }
+            createBufferSource() { return { connect() {}, start(...args) { sourceStart = args; } }; }
+            async startRendering() { return { getChannelData: () => clipMode ? new Float32Array(renderedFrames).fill(0.25) : samples }; }
         },
         AudioData: class { close() {} },
         AudioEncoder: class {
@@ -248,6 +305,72 @@ test("voice preparation encodes mono Opus into Ogg with duration and waveform me
     assert.equal(extractions, 1);
     assert.equal(videoVoice.blob.type, "audio/ogg; codecs=opus");
     assert.equal(videoVoice.duration, 0.04);
+    clipMode = true;
+    const voiceClip = await context.prepare(new Blob(["audio"]), false, new AbortController().signal, { start: 0.1, end: 0.3 });
+    assert.ok(Math.abs(voiceClip.duration - 0.2) < 0.0001);
+    assert.deepEqual([...sourceStart], [0, 0.1, voiceClip.duration]);
+    assert.equal(renderedFrames, 9600);
+});
+
+test("video audio extraction starts playback before recording its captured track", async () => {
+    let playing = false;
+    let disposed = false;
+    const track = { readyState: "live", stop() {} };
+    const video = {
+        duration: 1, currentTime: 0,
+        async play() { playing = true; },
+        captureStream() { assert.equal(playing, true); return { getAudioTracks: () => [track], getTracks: () => [track] }; },
+        addEventListener() {}, removeEventListener() {}
+    };
+    const context = vm.createContext({
+        Blob, Error, setTimeout, clearTimeout, status() {},
+        conversionVideo: async () => ({ video, dispose() { disposed = true; } }),
+        MediaStream: class { constructor(tracks) { this.tracks = tracks; } },
+        MediaRecorder: class {
+            static isTypeSupported() { return true; }
+            constructor(stream) { assert.equal(stream.tracks[0], track); this.state = "inactive"; }
+            start() {
+                assert.equal(playing, true);
+                this.state = "recording";
+                queueMicrotask(() => { this.ondataavailable({ data: new Blob(["audio"]) }); this.stop(); });
+            }
+            stop() { this.state = "inactive"; this.onstop?.(); }
+        }
+    });
+    vm.runInContext(section("    async function extractVideoAudio(", "    function waveform(") + "globalThis.extract = extractVideoAudio;", context);
+    const result = await context.extract(new Blob(["video"]), new AbortController().signal);
+    assert.equal(await result.text(), "audio");
+    assert.equal(disposed, true);
+});
+
+test("file clips rewind warmed media and start recording before final playback", async () => {
+    let playing = false;
+    let plays = 0;
+    const track = { readyState: "live", stop() {} };
+    const media = {
+        duration: 1, currentTime: 0, style: {},
+        load() {}, remove() {}, removeAttribute() {}, pause() { playing = false; },
+        async play() { playing = true; if (++plays === 1) this.currentTime = 0.05; },
+        captureStream() { assert.equal(playing, true); return { getTracks: () => [track] }; },
+        addEventListener() {}, removeEventListener() {}
+    };
+    const context = vm.createContext({
+        Blob, Error, setTimeout, clearTimeout, document: { body: { append() {} } },
+        element: () => media, status() {},
+        URL: { createObjectURL: () => "blob:clip", revokeObjectURL() {} },
+        waitForMedia: async (_media, _event, _signal, action) => action(),
+        MediaRecorder: class {
+            static isTypeSupported() { return true; }
+            constructor(stream) { assert.equal(stream.getTracks()[0], track); this.state = "inactive"; }
+            start() { assert.equal(playing, false); assert.equal(media.currentTime, 0); this.state = "recording"; queueMicrotask(() => { this.ondataavailable({ data: new Blob(["clip"]) }); this.stop(); }); }
+            stop() { this.state = "inactive"; this.onstop?.(); }
+        }
+    });
+    vm.runInContext(section("    async function prepareClip(", "    function closePlayback(") + "globalThis.clip = prepareClip;", context);
+    const result = await context.clip(new Blob(["video"]), "video", { start: 0, end: 0.5 }, new AbortController().signal);
+    assert.equal(await result.text(), "clip");
+    assert.equal(plays, 2);
+    assert.equal(playing, false);
 });
 
 test("voice upload sends Discord voice flags and clears a reply only after success", async () => {
@@ -276,26 +399,27 @@ test("voice upload sends Discord voice flags and clears a reply only after succe
     assert.deepEqual(events, []);
 });
 
-test("opening a preview does not send, and closing it pauses playback and releases its URL", async () => {
+test("audio and video preview playback waits for a trim seek and replays with one click", async () => {
+    for (const kind of ["audio", "video"]) {
     const preview = { replaceChildren() {}, append(...nodes) { this.nodes = nodes; } };
     const made = [];
     const revoked = [];
     const context = vm.createContext({
-        playbackId: 0, playback: undefined,
+        playbackId: 0, playback: undefined, queueMicrotask, setTimeout, clearTimeout,
         root: { querySelector: () => preview },
         position() {}, status() {}, t: value => value,
         readMedia: async () => new Blob(["audio"]),
         sendEntry() { throw new Error("Preview must not send"); },
         URL: { createObjectURL: () => "blob:preview", revokeObjectURL: url => revoked.push(url) },
         element(tag, className, text) {
-            const node = { tag, className, text, style: {}, currentTime: 0, append() {}, listeners: {}, addEventListener(name, action) { this.listeners[name] = action; }, setAttribute() {}, pause() { this.paused = true; }, removeAttribute() {}, load() {} };
+            const node = { tag, className, text, style: {}, currentTime: 0, playCount: 0, append() {}, listeners: {}, addEventListener(name, action) { this.listeners[name] = action; }, setAttribute() {}, pause() { this.paused = true; }, play() { this.paused = false; this.playCount++; return Promise.resolve(); }, removeAttribute() {}, load() {} };
             made.push(node);
             return node;
         }
     });
     vm.runInContext(section("    function closePlayback(", "    function waveform(") + "globalThis.preview = previewEntry; globalThis.closePreview = closePlayback;", context);
-    await context.preview({ kind: "audio", name: "audio.mp3" });
-    const audio = made.find(node => node.tag === "audio");
+    await context.preview({ kind, name: kind === "audio" ? "audio.mp3" : "video.mp4" });
+    const audio = made.find(node => node.tag === kind);
     assert.equal(audio.controls, true);
     assert.equal(audio.autoplay, undefined);
     assert.equal(audio.src, "blob:preview");
@@ -305,18 +429,32 @@ test("opening a preview does not send, and closing it pauses playback and releas
     const [startHandle, endHandle] = made.filter(node => node.className === "rl-clip-handle");
     for (let i = 0; i < 10; i++) startHandle.listeners.keydown({ key: "ArrowRight", preventDefault() {} });
     endHandle.listeners.keydown({ key: "ArrowLeft", preventDefault() {} });
+    audio.seeking = true;
     audio.currentTime = 0;
     audio.listeners.play();
     assert.ok(Math.abs(audio.currentTime - 1) < 0.0001);
+    assert.equal(audio.playCount, 0);
+    audio.seeking = false;
+    audio.listeners.seeked();
+    assert.equal(audio.playCount, 1);
+    assert.equal(audio.paused, false);
     audio.currentTime = 10;
     audio.listeners.timeupdate();
     assert.equal(audio.paused, true);
-    assert.ok(Math.abs(audio.currentTime - 9.9) < 0.0001);
+    assert.equal(audio.currentTime, 10);
     const playhead = made.find(node => node.className === "rl-clip-playhead");
-    assert.equal(playhead.style.left, "99%");
+    assert.equal(playhead.style.left, "100%");
+    const playClip = made.find(node => node.text === "Play clip");
+    playClip.listeners.click();
+    assert.equal(audio.paused, true);
+    audio.listeners.seeked();
+    assert.equal(audio.paused, false);
+    assert.equal(audio.playCount, 2);
+    assert.ok(Math.abs(audio.currentTime - 1) < 0.0001);
     context.closePreview();
     assert.equal(audio.paused, true);
     assert.deepEqual(revoked, ["blob:preview"]);
+    }
 });
 
 test("video GIF conversion produces a decodable animation with timing and releases resources", async () => {
@@ -370,15 +508,14 @@ test("video send options upload the selected conversion while main-card send kee
         MessageActions: { getSendMessageOptionsForReply: () => ({}) }
     };
     const original = new Blob(["video"], { type: "video/mp4" });
-    const clipped = new Blob(["clip"], { type: "video/webm" });
     const context = vm.createContext({
         Blob, File, Error, AbortController,
         busy: false, conversion: undefined, root: undefined, status: message => statuses.push(message), close() {}, syncSendState() {}, finishSend() {},
         vencord: () => ({ Webpack: { Common: common }, Util: { async sendMessage(_id, _data, _wait, options) { sent.push(options.attachmentsToUpload[0].item.file); } } }),
         readMedia: async () => original,
-        prepareClip: async (blob, kind, range, signal) => { assert.equal(blob, original); assert.equal(kind, "video"); assert.equal(range.start, 1); assert.equal(range.end, 2); assert.equal(signal.aborted, false); return clipped; },
+        prepareClip: async () => { throw new Error("Voice clips must not use MediaRecorder"); },
         prepareGif: async (blob, signal) => { assert.equal(blob, original); assert.equal(signal.aborted, false); return new Blob(["GIF89a"], { type: "image/gif" }); },
-        prepareVoice: async (blob, isVideo, signal) => { assert.ok(blob === original || blob === clipped); assert.equal(isVideo, true); assert.equal(signal.aborted, false); return { voice: true, clipped: blob === clipped }; },
+        prepareVoice: async (blob, isVideo, signal, clip) => { assert.equal(blob, original); assert.equal(isVideo, true); assert.equal(signal.aborted, false); return { voice: true, clipped: !!clip }; },
         uploadVoice: async (_common, id, prepared) => { assert.equal(id, "channel"); assert.equal(prepared.voice, true); sent.push(prepared.clipped ? "clip voice" : "voice"); }
     });
     vm.runInContext(section("    async function sendEntry(", "    function finishSend(") + "globalThis.run = sendEntry;", context);
