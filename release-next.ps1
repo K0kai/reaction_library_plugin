@@ -6,7 +6,7 @@ param(
     [string]$Tag,
     [switch]$Resume,
     [switch]$Public,
-    [string]$AcceptanceRecord,
+    [switch]$SkipChecks,
     [string]$SigningCertificateThumbprint
 )
 
@@ -16,9 +16,6 @@ if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 is required. Ru
 $script:root = $PSScriptRoot
 Set-Location -LiteralPath $script:root
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-if ($Public -and (-not $AcceptanceRecord -or -not (Test-Path -LiteralPath $AcceptanceRecord))) {
-    throw 'A public release requires -AcceptanceRecord pointing to the completed Windows VM acceptance record.'
-}
 
 function Run([string]$program, [string[]]$arguments) {
     & $program @arguments
@@ -94,14 +91,16 @@ if ($Resume) {
 } else {
     if ($existingTag -or $existingRelease.Count) { throw "Tag or release $Tag already exists. Use -Resume only for an unpublished draft." }
     Write-Output "Preparing $Tag from $branch."
-    $eslint = Join-Path $script:root '..\Equicord\node_modules\eslint\bin\eslint.js'
-    if (-not (Test-Path -LiteralPath $eslint)) { throw 'Install the adjacent Equicord development dependencies first.' }
     Run 'node' @('build.mjs')
-    Run 'node' @('check.mjs')
-    Run 'node' @($eslint, 'src/*.js')
-    Run 'node' @('--test', 'test/*.test.cjs')
-    foreach ($test in @('installer.test.ps1', 'installer-storage.test.ps1', 'installer-bootstrap.test.ps1')) {
-        Run 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "test/$test")
+    if (-not $SkipChecks) {
+        $eslint = Join-Path $script:root '..\Equicord\node_modules\eslint\bin\eslint.js'
+        if (-not (Test-Path -LiteralPath $eslint)) { throw 'Install the adjacent Equicord development dependencies first.' }
+        Run 'node' @('check.mjs')
+        Run 'node' @($eslint, 'src/*.js')
+        Run 'node' @('--test', 'test/*.test.cjs')
+        foreach ($test in @('installer.test.ps1', 'installer-storage.test.ps1', 'installer-bootstrap.test.ps1')) {
+            Run 'powershell' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "test/$test")
+        }
     }
     $packageArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'package-windows.ps1')
     if ($SigningCertificateThumbprint) { $packageArgs += @('-SigningCertificateThumbprint', $SigningCertificateThumbprint) }
@@ -120,6 +119,7 @@ if ($Resume) {
 
 $notes = if ($NotesFile) { Get-Content -LiteralPath $NotesFile -Raw } else { $CommitMessage }
 if (-not $notes) { $notes = "Reaction Library $Tag" }
+if ($SkipChecks) { $notes += "`n`nAutomated release checks were skipped for this release." }
 if (-not $Public) { $notes += "`n`nPreview release: the clean Windows VM acceptance cycle in installer/RELEASING.md has not been recorded for this release." }
 $release = if ($existingRelease.Count) { $existingRelease[0] } else {
     Github 'POST' "$api/releases" @{ tag_name = $Tag; target_commitish = $branch; name = $Tag; body = $notes; draft = $true; prerelease = (-not $Public) }

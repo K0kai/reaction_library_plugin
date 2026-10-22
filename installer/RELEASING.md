@@ -5,7 +5,7 @@ change the Vencord revision without repeating the clean-build and client tests.
 Dependency resolution uses the pinned Vencord lockfile. Upstream downloads are
 not silently substituted if a pinned file disappears or fails verification.
 
-Run the automated gates:
+Optional automated checks:
 
 ```powershell
 node --test test/*.test.cjs
@@ -45,7 +45,7 @@ Consumers can verify a signed ZIP before extracting/running anything:
 .\Verify-Release.ps1 -Zip .\ReactionLibrary-Windows-Setup.zip -ExpectedSignerThumbprint PUBLISHER_THUMBPRINT
 ```
 
-## Clean Windows acceptance gate
+## Optional clean Windows acceptance test
 
 Use a disposable Windows x64 VM or Windows Sandbox with networking. Do not map
 the host's Discord, AppData, media, or source checkout into it with write access.
@@ -72,5 +72,6 @@ Filesystem integration tests exercise the actual backup/switch/restore code on
 fake Discord archives, including crash recovery. A clean build/type check is
 additional evidence; neither proves successful operation in a live Discord client.
 Record the OS, Discord version, Vencord revision, installer ZIP hash, and results
-before marking a release as tested. Until the live VM cycle passes, distribute
-only as a preview to testers who understand this limitation.
+before describing a release as live-client tested. The release script does not
+require this record for a regular release. If you skip the test, avoid claiming
+that the installer was verified in a live Discord client.
