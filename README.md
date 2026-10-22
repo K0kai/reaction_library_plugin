@@ -24,7 +24,7 @@ Clicking a media card still sends the original file immediately. Video and audio
 
 Each card now keeps secondary actions in a compact menu. Images and GIFs can be sent as spoilers there; audio and video also offer preview, voice, and GIF conversion where applicable. The audio and video preview has a trim timeline with draggable start and end handles for sending a duration clip as a file, spoiler, or voice message. The handles also support arrow keys. File and spoiler clips are recorded in memory as WebM using the client's media support, so recording takes approximately the selected duration and unsupported codecs report an error. Voice clips select the chosen audio interval during voice conversion and do not use the WebM clip recorder.
 
-Preview playback follows the selected trim range. **Play clip** seeks to the beginning before starting, playback stops at the end, and a playhead on the timeline shows the current position. The player's own play control also waits for a pending trim seek before playback resumes.
+Preview playback follows the selected trim range. The player's play control seeks to the clip beginning before starting, playback stops at the end, and a playhead on the timeline shows the current position.
 
 Voice conversion uses existing OGG Opus audio directly and encodes other decodable audio to mono Opus when Dorion supports WebCodecs encoding. For videos, it first tries direct audio decoding, then an in-memory capture of the video's audio track. The fallback takes roughly the video's duration, plays silently, and shows progress. Videos with no decodable audio track report an error. Channel voice-message permissions apply.
 

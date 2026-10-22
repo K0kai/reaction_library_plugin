@@ -444,8 +444,8 @@ test("audio and video preview playback waits for a trim seek and replays with on
     assert.equal(audio.currentTime, 10);
     const playhead = made.find(node => node.className === "rl-clip-playhead");
     assert.equal(playhead.style.left, "100%");
-    const playClip = made.find(node => node.text === "Play clip");
-    playClip.listeners.click();
+    assert.equal(made.some(node => node.text === "Play clip"), false);
+    audio.listeners.play();
     assert.equal(audio.paused, true);
     audio.listeners.seeked();
     assert.equal(audio.paused, false);

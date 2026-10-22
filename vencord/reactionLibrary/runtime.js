@@ -1039,7 +1039,6 @@ function createReactionLibrary(host, options = {}) {
     "Clip start": "In\xEDcio do trecho",
     "Clip end": "Fim do trecho",
     "Send clip": "Enviar trecho",
-    "Play clip": "Reproduzir trecho",
     "Send clip as spoiler": "Enviar trecho como spoiler",
     "Send clip as voice": "Enviar trecho como voz",
     "Your client could not decode this video. You can send the original file instead.": "Seu cliente n\xE3o conseguiu decodificar este v\xEDdeo. Voc\xEA pode enviar o arquivo original.",
@@ -1914,9 +1913,6 @@ function createReactionLibrary(host, options = {}) {
       track.append(selection, playhead, startHandle, endHandle);
       times.append(startTime, durationTime, endTime);
       updateClip();
-      const playClip = element("button", "rl-primary", "Play clip");
-      playClip.type = "button";
-      playClip.addEventListener("click", playSelection);
       const clipSend = element("button", "rl-primary", "Send clip");
       clipSend.type = "button";
       clipSend.addEventListener("click", () => void sendEntry(entry, "file", { clip: { start: start2, end } }));
@@ -1927,7 +1923,7 @@ function createReactionLibrary(host, options = {}) {
       clipVoice.type = "button";
       clipVoice.addEventListener("click", () => void sendEntry(entry, "voice", { clip: { start: start2, end } }));
       const clipActions = element("div", "rl-clip-actions");
-      clipActions.append(playClip, clipSend, clipSpoiler, clipVoice);
+      clipActions.append(clipSend, clipSpoiler, clipVoice);
       clip.append(track, times, clipActions);
       area.append(clip);
       position();
