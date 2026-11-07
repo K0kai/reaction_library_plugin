@@ -919,10 +919,14 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     const slash = path.indexOf("/");
     const key = slash < 0 ? path : path.slice(0, slash);
     const folder = folders.find((item) => item.name === key);
-    return folder ? `${folderDisplayName(folder)}${slash < 0 ? "" : path.slice(slash)}` : path;
+    if (!folder) return path;
+    const display = folderDisplayName(folder);
+    const matchingKeys = new Set(folders.filter((item) => folderDisplayName(item) === display).map((item) => item.name));
+    const label = matchingKeys.size > 1 ? folder.name : display;
+    return `${label}${slash < 0 ? "" : path.slice(slash)}`;
   }
   async function sameDirectory(left, right) {
-    if (left?.root && right?.root) return left.root === right.root;
+    if (left?.root && right?.root) return left.root.replace(/[\\/]+$/, "").toLowerCase() === right.root.replace(/[\\/]+$/, "").toLowerCase();
     if (left === right) return true;
     if (left?.isSameEntry && right) {
       try {
@@ -940,7 +944,45 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     }
     return false;
   }
+  async function matchingFolder(folders, handle) {
+    for (const folder of folders) {
+      if (await sameDirectory(folder.handle, handle)) return folder;
+    }
+    return void 0;
+  }
+  async function mergeSameDirectoryFolders(folders) {
+    const kept = [];
+    const remap = /* @__PURE__ */ new Map();
+    for (const folder of folders) {
+      const existing = await matchingFolder(kept, folder.handle);
+      if (existing) remap.set(folder.name, existing.name);
+      else kept.push(folder);
+    }
+    return { folders: kept, remap };
+  }
+  function mergeFolderReferences(entries, remap) {
+    const byPath = /* @__PURE__ */ new Map();
+    const removedIds = [];
+    for (const entry of entries) {
+      const slash = entry.path.indexOf("/");
+      const key = slash < 0 ? entry.path : entry.path.slice(0, slash);
+      const target = remap.get(key);
+      const path = target ? `${target}${slash < 0 ? "" : entry.path.slice(slash)}` : entry.path;
+      const current = { ...entry, path };
+      const previous = byPath.get(path);
+      if (!previous) {
+        byPath.set(path, current);
+        continue;
+      }
+      previous.tags = [.../* @__PURE__ */ new Set([...previous.tags ?? [], ...current.tags ?? []])];
+      previous.added = Math.min(previous.added, current.added);
+      if (current.id !== previous.id) removedIds.push(current.id);
+    }
+    return { entries: [...byPath.values()], removedIds };
+  }
   async function uniqueFolderName(saved, name, handle) {
+    const matching = await matchingFolder(saved, handle);
+    if (matching) return matching.name;
     let candidate = name;
     let suffix = 2;
     while (true) {
@@ -1561,6 +1603,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     let filter = "all";
     let sort = "newest";
     let editing = null;
+    let tagDraft = "";
     let previewObserver;
     let previewCleanup = [];
     let visibleLimit = 60;
@@ -1572,6 +1615,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     let folderHandles = [];
     let defaultFolder;
     let saveQueue = Promise.resolve();
+    let savingContext = 0;
     const contextPatches = [];
     let accessWarning = false;
     let busy = false;
@@ -1582,12 +1626,18 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     let playbackId = 0;
     let conversion;
     let lastStatus = "";
+    let discoveryTimer;
+    let discovering = false;
+    const lastDiscovery = /* @__PURE__ */ new Map();
+    const pendingChanges = /* @__PURE__ */ new Set();
+    const DISCOVERY_INTERVAL = 5 * 60 * 1e3;
     const folderAccess = /* @__PURE__ */ new Map();
     const css = `
         button.${BUTTON_CLASS} { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--icon-default, var(--interactive-icon-default, var(--interactive-normal, #b5bac1))); cursor: pointer; }
         button.${BUTTON_CLASS} svg { display: block; color: inherit; fill: none; }
         button.${BUTTON_CLASS}:hover { color: var(--icon-strong, var(--interactive-hover, #f2f3f5)); background: var(--background-modifier-hover, #ffffff14); }
         .${ROOT_CLASS} { --rl-text: var(--text-default, var(--text-normal, #f2f3f5)); --rl-muted: var(--text-muted, #aeb3bb); --rl-panel: var(--background-surface-high, var(--background-floating, #232428)); --rl-input: var(--input-background-default, var(--input-background, #16171a)); --rl-border: var(--border-subtle, #ffffff1f); --rl-card: var(--background-surface-higher, var(--background-secondary, #2b2d31)); position: fixed; z-index: 10000; width: min(440px, calc(100vw - 16px)); max-height: min(520px, 70vh); overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--rl-border); border-radius: 8px; background: var(--rl-panel); color: var(--rl-text); box-shadow: 0 8px 32px #0008; font: 14px/1.4 var(--font-primary, "Segoe UI", sans-serif); color-scheme: dark; }
+        .${ROOT_CLASS}[hidden] { display: none; }
         .theme-light .${ROOT_CLASS} { color-scheme: light; }
         .${ROOT_CLASS} * { box-sizing: border-box; }
         .${ROOT_CLASS} header { margin: 0; padding: 12px 14px; color: var(--rl-text); font-size: 15px; font-weight: 700; border-bottom: 1px solid var(--rl-border); }
@@ -1657,8 +1707,8 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         .${ROOT_CLASS} .rl-clip-handle::after { content: '\u22EE'; }
         .${ROOT_CLASS} .rl-clip-times { display: flex; justify-content: space-between; margin: 5px 0 8px; color: #00c8ee; font-size: 12px; font-variant-numeric: tabular-nums; }
         .${ROOT_CLASS} .rl-clip-times span:nth-child(2) { color: var(--rl-muted); }
-        .${ROOT_CLASS} .rl-clip-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-        .${ROOT_CLASS} .rl-preview { padding: 10px 12px; border-bottom: 1px solid var(--rl-border); }
+        .${ROOT_CLASS} .rl-clip-actions { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0; background: var(--rl-panel); }
+        .${ROOT_CLASS} > .rl-preview { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px; border-bottom: 1px solid var(--rl-border); }
         .${ROOT_CLASS} .rl-preview:empty { display: none; }
         .${ROOT_CLASS} .rl-preview video { display: block; width: 100%; max-height: min(220px, 25vh); background: black; }
         .${ROOT_CLASS} .rl-preview audio { display: block; width: 100%; }
@@ -1702,12 +1752,22 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       if (message) console.info(`[${NAME}] ${message}`);
     }
     function close() {
+      if (!root) return;
+      playback?.media.pause();
+      root.hidden = true;
+      clearInterval(discoveryTimer);
+      discoveryTimer = void 0;
+    }
+    function destroy() {
+      clearInterval(discoveryTimer);
+      discoveryTimer = void 0;
       renderId++;
       closePlayback();
       clearPreviews();
       root?.remove();
       root = void 0;
       editing = null;
+      tagDraft = "";
     }
     function syncSendState() {
       const cancel = root?.querySelector(".rl-cancel");
@@ -1728,6 +1788,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           entries = await api.get(KEY, store2) ?? [];
           folderHandles = await api.get("folders", store2) ?? [];
           defaultFolder = await api.get("defaultFolder", store2) ?? void 0;
+          await mergeSavedFolders();
           updateSaveFolderLabel();
           await refreshFolderAccess();
           await restoreAccessOnOpen();
@@ -1742,6 +1803,24 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         loading = false;
         updateProgress();
       }
+    }
+    async function mergeSavedFolders() {
+      const allFolders = defaultFolder && !folderHandles.some((folder) => folder.name === defaultFolder.name) ? [...folderHandles, defaultFolder] : folderHandles;
+      const merged = await mergeSameDirectoryFolders(allFolders);
+      const references = mergeFolderReferences(entries, merged.remap);
+      if (!merged.remap.size && !references.removedIds.length && allFolders.length === folderHandles.length) return;
+      const canonicalDefault = defaultFolder && merged.folders.find((folder) => folder.name === (merged.remap.get(defaultFolder.name) ?? defaultFolder.name));
+      const { api, store: store2 } = dataStore();
+      await store2("readwrite", (objectStore) => {
+        objectStore.put(merged.folders, "folders");
+        objectStore.put(references.entries, KEY);
+        if (canonicalDefault) objectStore.put(canonicalDefault, "defaultFolder");
+        for (const id of references.removedIds) objectStore.delete(FILE(id));
+        return api.promisifyRequest(objectStore.transaction);
+      });
+      folderHandles = merged.folders;
+      entries = references.entries;
+      defaultFolder = canonicalDefault;
     }
     async function cleanupLegacyCopies() {
       const { api, store: store2 } = dataStore();
@@ -1794,32 +1873,21 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       importProgress = { total: 0, processed: 0, imported: 0, skipped: 0, failed: 0, scanning: true };
       updateProgress();
       try {
-        const files = [];
-        async function scan(handle2, path) {
-          for await (const child of handle2.values()) {
-            const childPath = `${path}/${child.name}`;
-            if (child.kind === "directory") await scan(child, childPath);
-            else {
-              files.push({ name: child.name, type: "", path: childPath, handle: child });
-              importProgress.total++;
-              if (files.length % 20 === 0) {
-                updateProgress();
-                await new Promise((resolve) => setTimeout(resolve, 0));
-              }
-            }
-          }
-        }
-        if (native) {
-          for (const file of directory.files) files.push({ name: file.name, type: "", path: `${directory.name}/${file.relative}`, handle: { kind: "native-file", root: directory.root, relative: file.relative } });
-          importProgress.total = files.length;
-        } else await scan(directory, directory.name);
         const { api, store: store2 } = dataStore();
         const handle = native ? { kind: "native-directory", root: directory.root } : directory;
-        folderHandles = [...folderHandles.filter((item) => item.name !== directory.name), { name: directory.name, handle }];
+        const existing = await matchingFolder(folderHandles, handle);
+        const name = existing?.name ?? await uniqueFolderName(folderHandles, directory.name, handle);
+        const files = native ? nativeFolderFiles(directory.root, name, directory.files) : await browserFolderFiles(directory, name);
+        importProgress.total = files.length;
+        folderHandles = [...folderHandles.filter((item) => item.name !== name), { name, handle }];
         await api.set("folders", folderHandles, store2);
-        folderAccess.set(directory.name, "granted");
+        folderAccess.set(name, "granted");
         importProgress.scanning = false;
         await importFolder(files);
+        lastDiscovery.set(name, Date.now());
+        if (native?.watchFolder) {
+          await native.watchFolder(directory.root).catch(() => false);
+        }
       } catch (error) {
         importProgress.error = error.message;
         status(error.message);
@@ -1829,6 +1897,35 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         updateProgress();
         render();
       }
+    }
+    function nativeFolderFiles(rootPath, name, files) {
+      return files.map((file) => ({ name: file.name, type: "", path: `${name}/${file.relative}`, handle: { kind: "native-file", root: rootPath, relative: file.relative } }));
+    }
+    async function browserFolderFiles(directory, name) {
+      const files = [];
+      async function scan(handle, path) {
+        for await (const child of handle.values()) {
+          const childPath = `${path}/${child.name}`;
+          if (child.kind === "directory") await scan(child, childPath);
+          else {
+            files.push({ name: child.name, type: "", path: childPath, handle: child });
+            if (files.length % 20 === 0) {
+              if (importProgress) importProgress.total = files.length;
+              updateProgress();
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+          }
+        }
+      }
+      await scan(directory, name);
+      return files;
+    }
+    async function referencedFolderFiles(folder) {
+      if (folder.handle.kind === "native-directory") {
+        const files = await vencord()?.Native?.scanFolder(folder.handle.root);
+        return nativeFolderFiles(folder.handle.root, folder.name, files);
+      }
+      return browserFolderFiles(folder.handle, folder.name);
     }
     function updateSaveFolderLabel() {
       const label = root?.querySelector(".rl-save-folder-label");
@@ -1908,7 +2005,8 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     }
     async function saveContextMedia(source) {
       const { api, store: store2 } = dataStore();
-      const folder = await api.get("defaultFolder", store2) ?? defaultFolder;
+      const selected = await api.get("defaultFolder", store2) ?? defaultFolder;
+      const folder = selected && (await matchingFolder(await api.get("folders", store2) ?? [], selected.handle) ?? selected);
       if (!folder) throw new Error("Choose a default save folder in Reaction Library first.");
       const native = vencord()?.Native;
       if (!native?.saveMedia) {
@@ -1946,10 +2044,14 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           saved = await saveBrowserFile(folder, blob, name);
         }
       }
+      while (importing) await new Promise((resolve) => setTimeout(resolve, 50));
       const latest = await api.get(KEY, store2) ?? [];
-      const entry = { id: crypto.randomUUID(), name: saved.name, path: `${folder.name}/${saved.relative}`, kind, tags: [], added: Date.now(), reference: true };
-      await api.setMany([[FILE(entry.id), saved.handle], [KEY, [...latest, entry]]], store2);
-      entries = [...latest, entry];
+      const path = `${folder.name}/${saved.relative}`;
+      const existing = latest.find((item) => item.path === path);
+      const entry = { ...existing ?? { id: crypto.randomUUID(), tags: [], added: Date.now() }, name: saved.name, path, kind, reference: true };
+      const next = existing ? latest.map((item) => item.id === existing.id ? entry : item) : [...latest, entry];
+      await api.setMany([[FILE(entry.id), saved.handle], [KEY, next]], store2);
+      entries = next;
       defaultFolder = folder;
       render();
       const message = /^pt/i.test(locale()) ? `${saved.name} adicionado \xE0 biblioteca de rea\xE7\xF5es.` : `Added ${saved.name} to Reaction Library.`;
@@ -1957,7 +2059,15 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       vencord()?.Webpack?.Common?.showToast?.({ text: message, variant: "success" });
     }
     function queueContextSave(source) {
-      const job = saveQueue.then(() => saveContextMedia(source));
+      const job = saveQueue.then(async () => {
+        savingContext++;
+        try {
+          await saveContextMedia(source);
+        } finally {
+          savingContext--;
+          if (root && !root.hidden) void discoverOnOpen().catch((error) => status(error.message));
+        }
+      });
       saveQueue = job.catch(() => {
       });
       void job.catch((error) => {
@@ -1992,7 +2102,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         contextPatches.push(() => api.removeContextMenuPatch?.(navId, patch));
       }
     }
-    async function importFolder(files) {
+    async function importFolder(files, onlyNew = false) {
       const { api, store: store2 } = dataStore();
       updateProgress();
       const byPath = new Map(entries.map((entry) => [entry.path, entry]));
@@ -2027,6 +2137,10 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           }
           const { path } = file;
           const existing = byPath.get(path);
+          if (onlyNew && existing) {
+            importProgress.skipped++;
+            continue;
+          }
           const entry = { ...existing ?? { id: crypto.randomUUID(), tags: [], added: Date.now() }, name: file.name, path, kind, reference: true };
           batch.push({ entry, file });
           if (batch.length >= 20) await commit();
@@ -2071,6 +2185,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       entries = entries.map((item) => item.id === entry.id ? { ...item, tags } : item);
       await api.set(KEY, entries, store2);
       editing = null;
+      tagDraft = "";
       await render();
     }
     async function sendEntry(entry, format = "file", options2 = {}) {
@@ -2131,12 +2246,13 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     }
     function finishSend(entry, initialRoot) {
       status(`Sent ${entry.name}.`);
-      if (root && root === initialRoot) close();
+      if (root && root === initialRoot && !root.hidden) destroy();
       else vencord()?.Webpack?.Common?.showToast?.({ text: t(`Sent ${entry.name}.`), variant: "success" });
     }
     function closePlayback() {
       playbackId++;
       if (playback) {
+        playback.cleanup?.();
         playback.media.pause();
         playback.media.removeAttribute("src");
         playback.media.load();
@@ -2192,6 +2308,11 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         let end = 0;
         let playRequested = false;
         let seekTimer;
+        let frame2;
+        playback.cleanup = () => {
+          clearTimeout(seekTimer);
+          cancelAnimationFrame(frame2);
+        };
         const timeLabel = (value) => `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toFixed(1).padStart(4, "0")}`;
         const updatePlayhead = () => {
           playhead.style.left = `${duration ? Math.max(0, Math.min(100, media.currentTime / duration * 100)) : 0}%`;
@@ -2225,7 +2346,19 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           }
           clearTimeout(seekTimer);
           playRequested = false;
-          void media.play().catch((error) => status(error.message));
+          void media.play().then(watchPlayback).catch((error) => status(error.message));
+        };
+        const watchPlayback = () => {
+          cancelAnimationFrame(frame2);
+          if (playback?.media !== media || media.paused || media.seeking) return;
+          if (media.currentTime >= end) {
+            media.pause();
+            media.currentTime = end;
+            updatePlayhead();
+            return;
+          }
+          updatePlayhead();
+          frame2 = requestAnimationFrame(watchPlayback);
         };
         const playSelection = () => {
           if (!duration || playRequested) return;
@@ -2251,12 +2384,16 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         });
         media.addEventListener("play", () => {
           if (duration && !playRequested && (media.seeking || media.currentTime < start2 - 0.025 || media.currentTime >= end)) playSelection();
+          else if (!playRequested) watchPlayback();
         });
         media.addEventListener("timeupdate", () => {
           if (!duration) return;
           if (!media.paused && !media.seeking && !playRequested) {
             if (media.currentTime < start2 - 0.025) playSelection();
-            else if (media.currentTime >= end) media.pause();
+            else if (media.currentTime >= end) {
+              media.pause();
+              media.currentTime = end;
+            }
           }
           updatePlayhead();
         });
@@ -2400,27 +2537,100 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       renderFolderAccess();
     }
     async function reconnect(name = folderFilter.split("/")[0]) {
+      if (importing || removing) return;
       if (!name) name = folderHandles.find((folder2) => folderAccess.get(folder2.name) !== "granted")?.name;
       const folder = folderHandles.find((item) => item.name === name);
       if (!folder) return status("Select a referenced folder first, or use Add folder to reconnect it.");
       try {
-        if (folder.handle.kind === "native-directory") {
-          folderAccess.set(folder.name, "granted");
-          accessWarning = false;
-          render();
-          status(`Folder ${folder.name} reconnected.`);
-          return;
-        }
-        const permission = await folder.handle.requestPermission({ mode: "read" });
+        const native = folder.handle.kind === "native-directory" ? vencord()?.Native : void 0;
+        const permission = native ? "granted" : await folder.handle.requestPermission({ mode: "read" });
         folderAccess.set(folder.name, permission);
         renderFolderAccess();
         if (permission !== "granted") return status("Folder access was not granted. Your references and tags are unchanged.");
-        await refreshFolderAccess();
+        importing = true;
+        importProgress = { total: 0, processed: 0, imported: 0, skipped: 0, failed: 0, scanning: true };
+        updateProgress();
+        const files = await referencedFolderFiles(folder);
+        importProgress.total = files.length;
+        importProgress.scanning = false;
+        await importFolder(files);
+        lastDiscovery.set(folder.name, Date.now());
         accessWarning = false;
         render();
         status(`Access to ${folder.name} restored. Thumbnails are loading.`);
       } catch (error) {
+        if (importProgress) importProgress.error = error.message;
         status(error.message);
+      } finally {
+        importing = false;
+        if (importProgress) importProgress.scanning = false;
+        updateProgress();
+      }
+    }
+    async function discoverFolder(folder) {
+      if (importing || removing || savingContext || !root || root.hidden || folderAccess.get(folder.name) !== "granted") return false;
+      importing = true;
+      importProgress = { total: 0, processed: 0, imported: 0, skipped: 0, failed: 0, scanning: true };
+      updateProgress();
+      try {
+        const files = await referencedFolderFiles(folder);
+        importProgress.total = files.length;
+        importProgress.scanning = false;
+        await importFolder(files, true);
+        lastDiscovery.set(folder.name, Date.now());
+        pendingChanges.delete(folder.handle.root);
+        return true;
+      } catch (error) {
+        importProgress.error = error.message;
+        status(error.message);
+        return false;
+      } finally {
+        importing = false;
+        importProgress.scanning = false;
+        updateProgress();
+      }
+    }
+    async function discoverChanges() {
+      if (discovering || importing || removing || savingContext || !root || root.hidden) return;
+      const native = vencord()?.Native;
+      if (!native?.takeFolderChanges) return;
+      discovering = true;
+      try {
+        for (const rootPath of await native.takeFolderChanges()) pendingChanges.add(rootPath);
+        for (const folder of folderHandles) {
+          if (pendingChanges.has(folder.handle.root)) await discoverFolder(folder);
+        }
+      } finally {
+        discovering = false;
+      }
+    }
+    async function discoverOnOpen() {
+      if (discovering || importing || removing || savingContext || !root || root.hidden) return;
+      discovering = true;
+      const native = vencord()?.Native;
+      try {
+        if (native?.watchFolder) {
+          const watched = /* @__PURE__ */ new Map();
+          for (const folder of folderHandles) {
+            if (folder.handle.kind !== "native-directory") continue;
+            watched.set(folder.handle.root, await native.watchFolder(folder.handle.root).catch(() => false));
+          }
+          for (const rootPath of await native.takeFolderChanges()) pendingChanges.add(rootPath);
+          for (const folder of folderHandles) {
+            const last = lastDiscovery.get(folder.name);
+            if (!last || pendingChanges.has(folder.handle.root) || !watched.get(folder.handle.root) && Date.now() - last >= DISCOVERY_INTERVAL) await discoverFolder(folder);
+          }
+        } else {
+          for (const folder of folderHandles) {
+            const last = lastDiscovery.get(folder.name);
+            if (!last || Date.now() - last >= DISCOVERY_INTERVAL) await discoverFolder(folder);
+          }
+        }
+      } finally {
+        discovering = false;
+        if (native?.takeFolderChanges && root && !root.hidden && !discoveryTimer) {
+          discoveryTimer = setInterval(() => void discoverChanges().catch((error) => status(error.message)), 2e3);
+        }
       }
     }
     async function removeEntries(items) {
@@ -2441,6 +2651,13 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           return api.promisifyRequest(objectStore.transaction);
         });
         entries = next;
+        for (const folder of folderHandles) {
+          if (!nextFolders.includes(folder)) lastDiscovery.delete(folder.name);
+          if (folder.handle.kind === "native-directory" && !nextFolders.some((remaining) => remaining.handle.root === folder.handle.root)) {
+            void vencord()?.Native?.unwatchFolder?.(folder.handle.root);
+            pendingChanges.delete(folder.handle.root);
+          }
+        }
         folderHandles = nextFolders;
         render();
         status(/^pt/i.test(locale()) ? `${items.length} ${items.length === 1 ? "item removido" : "itens removidos"} da biblioteca.` : `${items.length} item${items.length === 1 ? "" : "s"} removed from the library.`);
@@ -2630,7 +2847,10 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           const row = element("div", "rl-tags");
           const input = element("input");
           input.placeholder = t("Tags, separated by commas");
-          input.value = entry.tags.join(", ");
+          input.value = tagDraft;
+          input.addEventListener("input", () => {
+            tagDraft = input.value;
+          });
           input.addEventListener("keydown", (event) => {
             if (event.key === "Enter") void saveTags(entry, input.value);
           });
@@ -2645,6 +2865,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           edit.disabled = importing || removing;
           edit.addEventListener("click", () => {
             editing = entry.id;
+            tagDraft = entry.tags.join(", ");
             void render();
           });
           const footer = element("div", "rl-item-footer");
@@ -2694,7 +2915,14 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       void api.set("panelSize", panelSize, store2).catch((error) => status(error.message));
     }
     async function open(button) {
-      if (root) return close();
+      if (root) {
+        if (!root.hidden) return close();
+        anchor = button;
+        root.hidden = false;
+        position();
+        void discoverOnOpen().catch((error) => status(error.message));
+        return;
+      }
       visibleLimit = 60;
       accessWarning = false;
       anchor = button;
@@ -2817,6 +3045,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       search.focus();
       try {
         await load();
+        void discoverOnOpen().catch((error) => status(error.message));
       } catch (error) {
         status(error.message);
       }
@@ -2859,7 +3088,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       displayedLocale = current;
       if (root) {
         const button = anchor;
-        close();
+        destroy();
         if (button?.isConnected) void open(button);
       }
       if (options.mountButton !== false) for (const button of document.querySelectorAll(`button.${BUTTON_CLASS}`)) {
@@ -2899,10 +3128,10 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       else document.addEventListener("DOMContentLoaded", attach, { once: true });
     }
     function outsideClick(event) {
-      if (root && !root.contains(event.target) && !anchor?.contains(event.target)) close();
+      if (root && !root.hidden && !root.contains(event.target) && !anchor?.contains(event.target)) close();
     }
     function keydown(event) {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape" && root && !root.hidden) close();
     }
     function stop() {
       started = false;
@@ -2910,7 +3139,10 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       localeStore?.removeChangeListener?.(refreshLocale);
       localeStore = void 0;
       conversion?.abort();
-      close();
+      for (const folder of folderHandles) {
+        if (folder.handle.kind === "native-directory") void vencord()?.Native?.unwatchFolder?.(folder.handle.root);
+      }
+      destroy();
       observer.disconnect();
       if (frame !== void 0) cancelAnimationFrame(frame);
       queued = false;

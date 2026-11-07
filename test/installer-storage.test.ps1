@@ -28,8 +28,8 @@ function Run($Program,$Arguments,$Directory) {
     $script:installs++
     Assert ($Program.EndsWith('node.exe') -and $Arguments[0].EndsWith('npm-cli.js')) 'Tool preparation should invoke npm through Node without a command file.'
     $pnpmRoot=$Arguments[2]
-    New-Item -ItemType Directory -Path (Join-Path $pnpmRoot 'node_modules\pnpm\bin') -Force|Out-Null
-    'verified-pnpm'|Set-Content -LiteralPath (Join-Path $pnpmRoot 'node_modules\pnpm\bin\pnpm.cjs')
+    New-Item -ItemType Directory -Path (Join-Path $pnpmRoot 'node_modules\@pnpm\exe.win32-x64') -Force|Out-Null
+    'verified-pnpm'|Set-Content -LiteralPath (Join-Path $pnpmRoot 'node_modules\@pnpm\exe.win32-x64\pnpm.exe')
 }
 Prepare-Tools $manifest|Out-Null
 $firstNode=$script:preparedTools.node

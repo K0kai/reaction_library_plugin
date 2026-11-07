@@ -86,13 +86,13 @@ function Prepare-Tools($Manifest) {
         Expand-Archive -LiteralPath $gitZip -DestinationPath $gitRoot
         $pnpmArchive = Join-Path $cache "pnpm-$($Manifest.pnpm.version).tgz"
         Download-Verified $Manifest.pnpm.url $pnpmArchive $Manifest.pnpm.sha512 'SHA512'
-        # Unpack the verified local package with scripts disabled.
+        # Pnpm 12 ships as a native per-platform binary; unpack the verified package with scripts disabled.
         $env:PATH = "$nodeRoot;$(Join-Path $gitRoot 'cmd');$env:PATH"
         Run $node @((Join-Path $nodeRoot 'node_modules\npm\bin\npm-cli.js'),'install','--prefix',$pnpmRoot,'--offline','--ignore-scripts','--no-audit','--no-fund',$pnpmArchive) $Work
         Save-Json $receipt @{ key=$key; hashes=(Tree-Hashes $files) }
     }
     $env:PATH = "$nodeRoot;$(Join-Path $gitRoot 'cmd');$env:PATH"
-    $script:preparedTools = @{ node=$node; git=(Join-Path $gitRoot 'cmd\git.exe'); pnpm=(Join-Path $pnpmRoot 'node_modules\pnpm\bin\pnpm.cjs') }
+    $script:preparedTools = @{ node=$node; git=(Join-Path $gitRoot 'cmd\git.exe'); pnpm=(Join-Path $pnpmRoot 'node_modules\@pnpm\exe.win32-x64\pnpm.exe') }
 }
 function Copy-Source($Source, $Destination) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
@@ -143,8 +143,8 @@ function Prepare-Build($Plan, $Manifest) {
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'reactionLibrary') -Destination $plugins -Recurse
     Write-Output 'Installing locked dependencies and building with automatic Vencord updating disabled.'
-    Run $tools.node @($tools.pnpm,'install','--frozen-lockfile','--store-dir',(Join-Path $build '.pnpm-store')) $build
-    Run $tools.node @($tools.pnpm,'build','--disable-updater') $build
+    Run $tools.pnpm @('install','--frozen-lockfile','--store-dir',(Join-Path $build '.pnpm-store')) $build
+    Run $tools.pnpm @('build','--disable-updater') $build
     Run $tools.node @((Join-Path $build 'node_modules\typescript\bin\tsc'),'--noEmit','--pretty','false') $build
     foreach ($file in @('patcher.js','preload.js','renderer.js','renderer.css','renderer.js.map')) {
         if (-not (Test-Path -LiteralPath (Join-Path $build "dist\$file"))) { throw "Incomplete build: $file" }

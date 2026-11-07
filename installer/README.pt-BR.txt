@@ -25,7 +25,7 @@ a Dorion, Vesktop, ARM64 ou clientes em navegador.
 
 Plugins nativos permanecem incluídos. Configurações e temas ficam nos caminhos
 atuais e também recebem cópias de segurança. A nova compilação usa a revisão
-testada b0e636d do Vencord, além de versões fixas de Node, Git, pnpm e das
+testada 383409e do Vencord, além de versões fixas de Node, Git, pnpm e das
 dependências. Se a instalação atual tiver outra versão, a mudança aparecerá
 na revisão. O instalador recusa uma compilação que perderia algum arquivo de
 plugin nativo. Uma versão oficial mais recente pode exigir aguardar outro pacote.

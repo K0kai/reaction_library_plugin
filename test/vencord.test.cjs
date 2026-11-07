@@ -40,6 +40,7 @@ test("Vencord runtime starts and stops without injecting a duplicate chat button
     vm.runInNewContext(compiled, {
         module, exports: module.exports, require: name => name === "./localization.js" ? localizationModule.exports : name === "./media-source.js" ? mediaModule.exports : name === "./voice-codec.js" ? voiceModule.exports : name === "./media-conversion.js" ? conversionModule.exports : name === "./discord-sender.js" ? senderModule.exports : name === "./folder-identity.js" ? folderModule.exports : requireTools(name), URL,
         location: { href: "https://discord.com/channels/1/2" },
+        setInterval, clearInterval, setTimeout, clearTimeout,
         document: {
             body: {}, head: { append: style => styles.push(style) },
             createElement: () => ({ remove() { this.removed = true; } }),

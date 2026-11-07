@@ -5,11 +5,14 @@
  */
 
 import { app, dialog, net } from "electron";
+import { watch, type FSWatcher } from "node:fs";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const configPath = () => join(app.getPath("userData"), "reaction-library-folders.json");
 const saveConfigPath = () => join(app.getPath("userData"), "reaction-library-save-folder.json");
+const folderWatchers = new Map<string, FSWatcher>();
+const changedFolders = new Set<string>();
 
 async function requireSaveFolder(selectedRoot: string) {
     const savedRoot: unknown = JSON.parse(await readFile(saveConfigPath(), "utf8"));
@@ -33,16 +36,53 @@ export async function pickFolder(_: unknown) {
     const root = await realpath(selection.filePaths[0]);
     const allowed = await allowedFolders();
     if (!allowed.includes(root)) await writeFile(configPath(), JSON.stringify([...allowed, root]), "utf8");
+    const files = await scanFolder(null, root);
+    return { name: basename(root), root, files };
+}
+
+export async function scanFolder(_: unknown, selectedRoot: string) {
+    const allowed = await allowedFolders();
+    if (!allowed.includes(selectedRoot) || await realpath(selectedRoot) !== selectedRoot) throw new Error("This folder has not been selected. Add it through Reaction Library first.");
     const files: { name: string; relative: string; }[] = [];
     async function scan(directory: string) {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
             const path = join(directory, entry.name);
             if (entry.isDirectory()) await scan(path);
-            else if (entry.isFile()) files.push({ name: entry.name, relative: relative(root, path).split(sep).join("/") });
+            else if (entry.isFile()) files.push({ name: entry.name, relative: relative(selectedRoot, path).split(sep).join("/") });
         }
     }
-    await scan(root);
-    return { name: basename(root), root, files };
+    await scan(selectedRoot);
+    return files;
+}
+
+export async function watchFolder(_: unknown, selectedRoot: string) {
+    const allowed = await allowedFolders();
+    if (!allowed.includes(selectedRoot) || await realpath(selectedRoot) !== selectedRoot) throw new Error("This folder has not been selected. Add it through Reaction Library first.");
+    if (folderWatchers.has(selectedRoot)) return true;
+    try {
+        const watcher = watch(selectedRoot, { recursive: true }, () => changedFolders.add(selectedRoot));
+        watcher.on("error", () => {
+            changedFolders.add(selectedRoot);
+            folderWatchers.delete(selectedRoot);
+            watcher.close();
+        });
+        folderWatchers.set(selectedRoot, watcher);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function takeFolderChanges(_: unknown) {
+    const roots = [...changedFolders];
+    changedFolders.clear();
+    return roots;
+}
+
+export function unwatchFolder(_: unknown, selectedRoot: string) {
+    folderWatchers.get(selectedRoot)?.close();
+    folderWatchers.delete(selectedRoot);
+    changedFolders.delete(selectedRoot);
 }
 
 export async function pickSaveFolder(_: unknown) {

@@ -23,7 +23,7 @@ clients are not supported by this Windows installer.
 
 Built-in plugins remain included. Existing settings and themes stay at their
 current paths; the installer also backs them up before switching builds.
-The new build is pinned to Vencord revision b0e636d, with pinned Node, Git, pnpm,
+The new build is pinned to Vencord revision 383409e, with pinned Node, Git, pnpm,
 and dependency lockfile. If your stock build is newer or older, the review dialog
 shows the version change. Setup refuses a build that would lose an existing
 built-in plugin file. This can mean a newer stock installation must wait for a

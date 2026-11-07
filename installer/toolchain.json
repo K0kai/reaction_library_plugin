@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "vencordCommit": "b0e636df2ed5c9006b80ddc6644bc41110404bc3",
+  "vencordCommit": "383409e6a6ec9008ee8a7496500f1e75f17824d1",
   "vencordRepository": "https://github.com/Vendicated/Vencord.git",
   "node": {
     "version": "24.22.1",
@@ -13,8 +13,9 @@
     "sha256": "da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be"
   },
   "pnpm": {
-    "version": "11.9.0",
-    "url": "https://registry.npmjs.org/pnpm/-/pnpm-11.9.0.tgz",
-    "sha512": "vWgtXQP+Ul73yf1ngMaITR51asTJyf4AxTh4KCQxDc+Q493E9Tg18G3669UIXkGFXgvLs7YN4qxburieUDbwOw=="
+    "version": "12.15.0",
+    "package": "@pnpm/exe.win32-x64",
+    "url": "https://registry.npmjs.org/@pnpm/exe.win32-x64/-/exe.win32-x64-12.15.0.tgz",
+    "sha512": "nrd+Tp1We1DGj4DGG5Bea9lZNh9y1PjlLBdEwdInS4D0h0UIDtM7JaGGGDJhNzIwcHASyihWI7HLV+dtG+fhYg=="
   }
 }

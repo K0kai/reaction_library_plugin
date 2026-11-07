@@ -68,7 +68,7 @@ Expect-Failure {Get-Plan $resources '' $manifest} 'Custom plugins without source
 $source=Join-Path $scratch 'source'
 New-Item -ItemType Directory -Path (Join-Path $source 'src\plugins'),(Join-Path $source 'src\userplugins\friend') -Force|Out-Null
 'friend plugin source'|Set-Content -LiteralPath (Join-Path $source 'src\userplugins\friend\index.ts')
-'{"packageManager":"pnpm@11.9.0"}'|Set-Content -LiteralPath (Join-Path $source 'package.json')
+'{"packageManager":"pnpm@12.15.0"}'|Set-Content -LiteralPath (Join-Path $source 'package.json')
 Save-Json (Join-Path $source 'tested-toolchain.json') $manifest
 'local modification'|Set-Content -LiteralPath (Join-Path $source 'my-local-file.txt')
 $customPlan=Get-Plan $resources $source $manifest
@@ -126,7 +126,7 @@ Apply-Build $plan $build $newHashes|Out-Null
 $installedHashes=Tree-Hashes $dist
 $marker=Read-Json (Join-Path $dist 'reaction-library-install.json')
 New-Item -ItemType Directory -Path (Join-Path $build 'src\plugins') -Force|Out-Null
-'{"packageManager":"pnpm@11.9.0"}'|Set-Content -LiteralPath (Join-Path $build 'package.json')
+'{"packageManager":"pnpm@12.15.0"}'|Set-Content -LiteralPath (Join-Path $build 'package.json')
 Save-Json (Join-Path $build 'tested-toolchain.json') $manifest
 $updatePlan=Get-Plan $resources '' $manifest
 Assert ($updatePlan.managedStock -and -not $updatePlan.source) 'Stock-origin helper updates should allow a new tested revision without inventing custom source.'
