@@ -925,23 +925,32 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     const label = matchingKeys.size > 1 ? folder.name : display;
     return `${label}${slash < 0 ? "" : path.slice(slash)}`;
   }
+  async function withTimeout(promise, ms, fallback) {
+    let timer;
+    try {
+      return await Promise.race([
+        Promise.resolve(promise),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(fallback), ms);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function isSameEntry(handle, other) {
+    try {
+      return await withTimeout(handle.isSameEntry(other), 1500, false);
+    } catch {
+      return false;
+    }
+  }
   async function sameDirectory(left, right) {
     if (left?.root && right?.root) return left.root.replace(/[\\/]+$/, "").toLowerCase() === right.root.replace(/[\\/]+$/, "").toLowerCase();
     if (left === right) return true;
-    if (left?.isSameEntry && right) {
-      try {
-        return await left.isSameEntry(right);
-      } catch {
-        return false;
-      }
-    }
-    if (right?.isSameEntry && left) {
-      try {
-        return await right.isSameEntry(left);
-      } catch {
-        return false;
-      }
-    }
+    if (left?.name && right?.name && left.name !== right.name) return false;
+    if (left?.isSameEntry && right) return isSameEntry(left, right);
+    if (right?.isSameEntry && left) return isSameEntry(right, left);
     return false;
   }
   async function matchingFolder(folders, handle) {
@@ -1632,6 +1641,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     const pendingChanges = /* @__PURE__ */ new Set();
     const DISCOVERY_INTERVAL = 5 * 60 * 1e3;
     const folderAccess = /* @__PURE__ */ new Map();
+    const sessionFolders = /* @__PURE__ */ new Map();
     const css = `
         button.${BUTTON_CLASS} { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--icon-default, var(--interactive-icon-default, var(--interactive-normal, #b5bac1))); cursor: pointer; }
         button.${BUTTON_CLASS} svg { display: block; color: inherit; fill: none; }
@@ -1788,10 +1798,12 @@ OR OTHER DEALINGS IN THE SOFTWARE.
           entries = await api.get(KEY, store2) ?? [];
           folderHandles = await api.get("folders", store2) ?? [];
           defaultFolder = await api.get("defaultFolder", store2) ?? void 0;
-          await mergeSavedFolders();
+          applySessionFolders();
+          await mergeSavedFolders().catch((error) => console.warn(`[${NAME}] Could not merge saved folders`, error));
           updateSaveFolderLabel();
-          await refreshFolderAccess();
-          await restoreAccessOnOpen();
+          await Promise.race([refreshFolderAccess(), new Promise((resolve) => setTimeout(resolve, 3e3))]);
+          render();
+          await Promise.race([restoreAccessOnOpen(), new Promise((resolve) => setTimeout(resolve, 3e3))]);
           if (!panelSize) {
             const savedSize = await api.get("panelSize", store2);
             if (savedSize && Number.isFinite(savedSize.width) && Number.isFinite(savedSize.height)) resizePanel(savedSize.width, savedSize.height);
@@ -1802,6 +1814,14 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       } finally {
         loading = false;
         updateProgress();
+      }
+    }
+    function applySessionFolders() {
+      for (const [name, handle] of sessionFolders) {
+        const index = folderHandles.findIndex((folder) => folder.name === name);
+        if (index < 0) folderHandles = [...folderHandles, { name, handle }];
+        else if (folderHandles[index].handle !== handle) folderHandles = folderHandles.map((folder, at) => at === index ? { ...folder, handle } : folder);
+        if (defaultFolder?.name === name && defaultFolder.handle !== handle) defaultFolder = { ...defaultFolder, handle };
       }
     }
     async function mergeSavedFolders() {
@@ -1854,7 +1874,16 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         return complete.then(() => ({ count: deleted.size, bytes }));
       });
     }
-    async function pickFolder() {
+    async function persistFolders(pairs) {
+      const { api, store: store2 } = dataStore();
+      try {
+        await api.setMany(pairs, store2);
+      } catch (error) {
+        console.warn(`[${NAME}] Could not store folder access`, error);
+        status("Your client could not save folder access, so you will need to select this folder again after restarting. The library still works for now.");
+      }
+    }
+    async function pickFolder(renew) {
       if (importing || removing) return;
       const native = vencord()?.Native;
       if (!native && !globalThis.showDirectoryPicker) {
@@ -1873,14 +1902,15 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       importProgress = { total: 0, processed: 0, imported: 0, skipped: 0, failed: 0, scanning: true };
       updateProgress();
       try {
-        const { api, store: store2 } = dataStore();
         const handle = native ? { kind: "native-directory", root: directory.root } : directory;
-        const existing = await matchingFolder(folderHandles, handle);
+        const renewing = renew && !native ? folderHandles.find((item) => item.name === renew && folderDisplayName(item) === directory.name) : void 0;
+        const existing = renewing ?? await matchingFolder(folderHandles, handle);
         const name = existing?.name ?? await uniqueFolderName(folderHandles, directory.name, handle);
         const files = native ? nativeFolderFiles(directory.root, name, directory.files) : await browserFolderFiles(directory, name);
         importProgress.total = files.length;
         folderHandles = [...folderHandles.filter((item) => item.name !== name), { name, handle }];
-        await api.set("folders", folderHandles, store2);
+        if (!native) sessionFolders.set(name, handle);
+        await persistFolders([["folders", folderHandles]]);
         folderAccess.set(name, "granted");
         importProgress.scanning = false;
         await importFolder(files);
@@ -1949,7 +1979,8 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         const name = await uniqueFolderName(saved, selected.name, handle);
         const folder = { name, handle };
         const next = [...saved.filter((item) => item.name !== name), folder];
-        await api.setMany([["folders", next], ["defaultFolder", folder]], store2);
+        if (!native?.pickSaveFolder) sessionFolders.set(name, handle);
+        await persistFolders([["folders", next], ["defaultFolder", folder]]);
         folderHandles = next;
         defaultFolder = folder;
         folderAccess.set(name, "granted");
@@ -2005,14 +2036,14 @@ OR OTHER DEALINGS IN THE SOFTWARE.
     }
     async function saveContextMedia(source) {
       const { api, store: store2 } = dataStore();
-      const selected = await api.get("defaultFolder", store2) ?? defaultFolder;
-      const folder = selected && (await matchingFolder(await api.get("folders", store2) ?? [], selected.handle) ?? selected);
+      const selected = defaultFolder ?? await api.get("defaultFolder", store2);
+      const folder = selected && (await matchingFolder(folderHandles.length ? folderHandles : await api.get("folders", store2) ?? [], selected.handle) ?? selected);
       if (!folder) throw new Error("Choose a default save folder in Reaction Library first.");
       const native = vencord()?.Native;
       if (!native?.saveMedia) {
         let permission;
         try {
-          permission = await folder.handle.queryPermission({ mode: "readwrite" });
+          permission = await withTimeout(folder.handle.queryPermission({ mode: "readwrite" }), 4e3, "prompt");
         } catch (error) {
           if (error.name === "NotFoundError") throw new Error("The save folder is unavailable. Open Reaction Library and set the save folder again.");
           throw error;
@@ -2050,7 +2081,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       const existing = latest.find((item) => item.path === path);
       const entry = { ...existing ?? { id: crypto.randomUUID(), tags: [], added: Date.now() }, name: saved.name, path, kind, reference: true };
       const next = existing ? latest.map((item) => item.id === existing.id ? entry : item) : [...latest, entry];
-      await api.setMany([[FILE(entry.id), saved.handle], [KEY, next]], store2);
+      await writeIndex(saved.handle?.kind === "native-file" ? [[FILE(entry.id), saved.handle]] : [], next);
       entries = next;
       defaultFolder = folder;
       render();
@@ -2102,6 +2133,23 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         contextPatches.push(() => api.removeContextMenuPatch?.(navId, patch));
       }
     }
+    async function writeIndex(handlePairs, list) {
+      const { api, store: store2 } = dataStore();
+      try {
+        await api.setMany([...handlePairs, [KEY, list]], store2);
+        return true;
+      } catch (error) {
+        console.warn(`[${NAME}] Could not store file handles; saving the index only`, error);
+        try {
+          await api.set(KEY, list, store2);
+        } catch {
+          throw error;
+        }
+        await api.delMany?.(handlePairs.map(([key]) => key), store2).catch(() => {
+        });
+        return false;
+      }
+    }
     async function importFolder(files, onlyNew = false) {
       const { api, store: store2 } = dataStore();
       updateProgress();
@@ -2112,7 +2160,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         const next = new Map(entries.map((entry) => [entry.id, entry]));
         for (const { entry } of batch) next.set(entry.id, entry);
         try {
-          await api.setMany([...batch.map(({ entry, file }) => [FILE(entry.id), file.handle]), [KEY, [...next.values()]]], store2);
+          if (!await writeIndex(batch.filter(({ file }) => file.handle?.kind === "native-file").map(({ entry, file }) => [FILE(entry.id), file.handle]), [...next.values()])) importProgress.handlesSkipped = true;
           entries = [...next.values()];
           importProgress.imported += batch.length;
           batch.forEach(({ entry }) => byPath.set(entry.path, entry));
@@ -2456,25 +2504,18 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         status(error.message);
       }
     }
-    async function readMedia(entry, request = false) {
-      const folderName = entry.path?.split("/")[0];
-      if (!request && entry.reference && folderAccess.has(folderName) && folderAccess.get(folderName) !== "granted") {
-        const error = new Error("Restore folder access below to load your thumbnails. Your file references are still saved.");
-        error.name = "NotAllowedError";
-        throw error;
-      }
-      const { api, store: store2 } = dataStore();
-      const saved = await api.get(FILE(entry.id), store2);
-      if (saved instanceof Blob) return saved;
-      if (saved?.kind === "native-file") {
-        const native = vencord()?.Native;
-        if (!native) throw new Error("Desktop file access is unavailable. Restart your client to load the plugin's native helper.");
-        const file = await native.readMedia(saved.root, saved.relative);
-        return new File([file.data], file.name, { type: file.type });
-      }
-      if (!saved || saved.kind !== "file") throw new Error("This file is missing. Add its folder again to reconnect it.");
-      let permission = await saved.queryPermission({ mode: "read" });
-      if (permission !== "granted" && request) permission = await saved.requestPermission({ mode: "read" });
+    async function resolveFileHandle(entry) {
+      const slash = entry.path.indexOf("/");
+      const folder = folderHandles.find((item) => item.name === entry.path.slice(0, slash));
+      if (slash < 0 || !folder?.handle?.getDirectoryHandle) return void 0;
+      const parts = entry.path.slice(slash + 1).split("/");
+      let directory = folder.handle;
+      for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+      return directory.getFileHandle(parts.at(-1));
+    }
+    async function readThroughFolder(folder, folderName, entry, request) {
+      let permission = await withTimeout(folder.handle.queryPermission({ mode: "read" }), 4e3, "prompt").catch(() => "prompt");
+      if (permission !== "granted" && request) permission = await withTimeout(folder.handle.requestPermission({ mode: "read" }), 5e3, "prompt").catch(() => "prompt");
       if (permission !== "granted") {
         folderAccess.set(folderName, permission);
         renderFolderAccess();
@@ -2482,12 +2523,66 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         error.name = "NotAllowedError";
         throw error;
       }
-      return saved.getFile();
+      if (folderAccess.get(folderName) !== "granted") {
+        folderAccess.set(folderName, "granted");
+        renderFolderAccess();
+      }
+      let file;
+      try {
+        const handle = await withTimeout(resolveFileHandle(entry), 8e3, void 0);
+        file = handle && await withTimeout(handle.getFile(), 8e3, void 0);
+      } catch (error) {
+        if (error?.name !== "NotFoundError") throw error;
+      }
+      if (!file) throw new Error("This file could not be read. It may have been moved or deleted.");
+      return file;
+    }
+    async function readMedia(entry, request = false) {
+      const folderName = entry.path?.split("/")[0];
+      if (!request && entry.reference && folderAccess.has(folderName) && folderAccess.get(folderName) !== "granted") {
+        const error = new Error("Restore folder access below to load your thumbnails. Your file references are still saved.");
+        error.name = "NotAllowedError";
+        throw error;
+      }
+      const browserFolder = folderHandles.find((item) => item.name === folderName && item.handle?.kind !== "native-directory" && item.handle?.getDirectoryHandle);
+      if (browserFolder) return readThroughFolder(browserFolder, folderName, entry, request);
+      const { api, store: store2 } = dataStore();
+      let saved = await api.get(FILE(entry.id), store2);
+      if (saved instanceof Blob) return saved;
+      if (saved?.kind === "native-file") {
+        const native = vencord()?.Native;
+        if (!native) throw new Error("Desktop file access is unavailable. Restart your client to load the plugin's native helper.");
+        const file2 = await native.readMedia(saved.root, saved.relative);
+        return new File([file2.data], file2.name, { type: file2.type });
+      }
+      if (saved?.kind !== "native-file") {
+        const resolved = await withTimeout(resolveFileHandle(entry), 4e3, void 0).catch(() => void 0);
+        if (resolved) saved = resolved;
+      }
+      if (!saved || saved.kind !== "file") throw new Error("This file is missing. Add its folder again to reconnect it.");
+      let permission = await withTimeout(saved.queryPermission({ mode: "read" }), 4e3, "prompt");
+      if (permission !== "granted" && request) permission = await withTimeout(saved.requestPermission({ mode: "read" }), 5e3, "prompt");
+      if (permission !== "granted") {
+        folderAccess.set(folderName, permission);
+        renderFolderAccess();
+        const error = new Error("Restore folder access below to load your thumbnails. Your file references are still saved.");
+        error.name = "NotAllowedError";
+        throw error;
+      }
+      const file = await withTimeout(saved.getFile(), 1e4, void 0);
+      if (!file) {
+        folderAccess.set(folderName, "prompt");
+        renderFolderAccess();
+        const error = new Error("This file did not respond. Restore folder access below, or select the folder again.");
+        error.name = "NotAllowedError";
+        throw error;
+      }
+      return file;
     }
     async function refreshFolderAccess() {
       await Promise.all(folderHandles.map(async (folder) => {
         try {
-          folderAccess.set(folder.name, folder.handle.kind === "native-directory" ? "granted" : await folder.handle.queryPermission({ mode: "read" }));
+          folderAccess.set(folder.name, folder.handle.kind === "native-directory" ? "granted" : await withTimeout(folder.handle.queryPermission({ mode: "read" }), 4e3, "prompt"));
         } catch {
           folderAccess.set(folder.name, "unavailable");
         }
@@ -2515,7 +2610,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         const button = element("button", "rl-primary", missing ? "Select folder again" : "Restore access");
         button.type = "button";
         button.setAttribute("aria-label", `${t(missing ? "Select" : "Restore access to")} ${name}`);
-        button.addEventListener("click", () => void (missing ? pickFolder() : reconnect(name)));
+        button.addEventListener("click", () => void (missing ? pickFolder(name) : reconnect(name)));
         row.append(element("span", "", name), button);
         area.append(row);
       }
@@ -2527,7 +2622,7 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         if (folderAccess.get(folder.name) !== "prompt") continue;
         if (!navigator.userActivation.isActive) break;
         try {
-          const permission = await folder.handle.requestPermission({ mode: "read" });
+          const permission = await withTimeout(folder.handle.requestPermission({ mode: "read" }), 3e4, "prompt");
           folderAccess.set(folder.name, permission);
           if (permission !== "granted") break;
         } catch {
@@ -2543,7 +2638,11 @@ OR OTHER DEALINGS IN THE SOFTWARE.
       if (!folder) return status("Select a referenced folder first, or use Add folder to reconnect it.");
       try {
         const native = folder.handle.kind === "native-directory" ? vencord()?.Native : void 0;
-        const permission = native ? "granted" : await folder.handle.requestPermission({ mode: "read" });
+        let permission = native ? "granted" : await withTimeout(folder.handle.requestPermission({ mode: "read" }), 2500, "prompt").catch(() => "prompt");
+        if (permission !== "granted" && globalThis.showDirectoryPicker) {
+          status("Select the same folder again to restore access. Your references and tags are kept.");
+          return await pickFolder(folder.name);
+        }
         folderAccess.set(folder.name, permission);
         renderFolderAccess();
         if (permission !== "granted") return status("Folder access was not granted. Your references and tags are unchanged.");
@@ -2647,12 +2746,15 @@ OR OTHER DEALINGS IN THE SOFTWARE.
         await store2("readwrite", (objectStore) => {
           items.forEach((entry) => objectStore.delete(FILE(entry.id)));
           objectStore.put(next, KEY);
-          objectStore.put(nextFolders, "folders");
+          if (nextFolders.length !== folderHandles.length) objectStore.put(nextFolders, "folders");
           return api.promisifyRequest(objectStore.transaction);
         });
         entries = next;
         for (const folder of folderHandles) {
-          if (!nextFolders.includes(folder)) lastDiscovery.delete(folder.name);
+          if (!nextFolders.includes(folder)) {
+            lastDiscovery.delete(folder.name);
+            sessionFolders.delete(folder.name);
+          }
           if (folder.handle.kind === "native-directory" && !nextFolders.some((remaining) => remaining.handle.root === folder.handle.root)) {
             void vencord()?.Native?.unwatchFolder?.(folder.handle.root);
             pendingChanges.delete(folder.handle.root);

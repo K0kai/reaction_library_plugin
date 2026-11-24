@@ -18,15 +18,29 @@ export function folderPathLabel(path, folders) {
     return `${label}${slash < 0 ? "" : path.slice(slash)}`;
 }
 
+// Some webviews never settle folder-handle calls, which would leave the library frozen.
+// Resolve with `fallback` if the call has not settled in time.
+export async function withTimeout(promise, ms, fallback) {
+    let timer;
+    try {
+        return await Promise.race([
+            Promise.resolve(promise),
+            new Promise(resolve => { timer = setTimeout(() => resolve(fallback), ms); })
+        ]);
+    } finally { clearTimeout(timer); }
+}
+
+async function isSameEntry(handle, other) {
+    try { return await withTimeout(handle.isSameEntry(other), 1500, false); } catch { return false; }
+}
+
 export async function sameDirectory(left, right) {
     if (left?.root && right?.root) return left.root.replace(/[\\/]+$/, "").toLowerCase() === right.root.replace(/[\\/]+$/, "").toLowerCase();
     if (left === right) return true;
-    if (left?.isSameEntry && right) {
-        try { return await left.isSameEntry(right); } catch { return false; }
-    }
-    if (right?.isSameEntry && left) {
-        try { return await right.isSameEntry(left); } catch { return false; }
-    }
+    // The same directory always has the same name, so skip the slow check when they differ.
+    if (left?.name && right?.name && left.name !== right.name) return false;
+    if (left?.isSameEntry && right) return isSameEntry(left, right);
+    if (right?.isSameEntry && left) return isSameEntry(right, left);
     return false;
 }
 

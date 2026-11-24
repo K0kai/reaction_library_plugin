@@ -15,7 +15,7 @@ vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/local
 const senderModule = { exports: {} };
 vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/discord-sender.js"), "utf8"), { format: "cjs" }).code, { module: senderModule, exports: senderModule.exports, File });
 const folderModule = { exports: {} };
-vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/folder-identity.js"), "utf8"), { format: "cjs" }).code, { module: folderModule, exports: folderModule.exports });
+vm.runInNewContext(transformSync(readFileSync(path.join(__dirname, "../src/folder-identity.js"), "utf8"), { format: "cjs" }).code, { module: folderModule, exports: folderModule.exports, setTimeout, clearTimeout });
 
 function section(from, to) {
     return source.slice(source.indexOf(from), source.indexOf(to));
@@ -47,7 +47,7 @@ test("desktop fallback saves Discord media without using the page fetch", async 
         }
     } };
     let nativeCalls = 0;
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, crypto: require("node:crypto").webcrypto,
         firstDownload: mediaSource.firstDownload, mediaFilename: mediaSource.mediaFilename,
         matchingFolder: folderModule.exports.matchingFolder,
@@ -58,7 +58,7 @@ test("desktop fallback saves Discord media without using the page fetch", async 
             return { success: true, data: new TextEncoder().encode("image bytes"), contentType: "image/png" };
         } } } },
         fetch() { throw new Error("page fetch must not run"); },
-        defaultFolder: folder, entries: [], importing: false, KEY: "index", FILE: id => `file:${id}`,
+        defaultFolder: folder, folderHandles: [], entries: [], importing: false, KEY: "index", FILE: id => `file:${id}`,
         dataStore: () => ({ store: null, api: {
             get: async key => key === "defaultFolder" ? folder : key === "index" ? stored.get("index") ?? [] : [],
             setMany: async pairs => pairs.forEach(([key, value]) => stored.set(key, value))
@@ -66,7 +66,7 @@ test("desktop fallback saves Discord media without using the page fetch", async 
         vencord: () => ({ Webpack: { Common: {} } }), locale: () => "en-US", status() {}, render() {},
         t: value => value
     });
-    vm.runInContext(section("    async function downloadBlob(", "    function queueContextSave(") + "globalThis.run = saveContextMedia;", context);
+    vm.runInContext(section("    async function downloadBlob(", "    function queueContextSave(") + section("    async function writeIndex(", "    async function importFolder(") + "globalThis.run = saveContextMedia;", context);
     await context.run({ urls: ["https://cdn.discordapp.com/attachments/1/2/reaction.png", "https://media.discordapp.net/attachments/1/2/reaction.png"], name: "reaction.png" });
     assert.equal(nativeCalls, 2);
     assert.equal(written.length, 1);
@@ -133,6 +133,20 @@ test("save folder label uses the real directory name while keys remain unique", 
     assert.equal(await uniqueFolderName([{ name: "discord (2)", handle: selected }], "discord", selected), "discord (2)");
 });
 
+test("a folder handle whose isSameEntry never settles cannot block the library", async () => {
+    const { sameDirectory } = folderModule.exports;
+    const stuck = { name: "discord", isSameEntry: () => new Promise(() => {}) };
+    assert.equal(await sameDirectory(stuck, { name: "discord" }), false);
+    assert.equal(await sameDirectory(stuck, { name: "other" }), false);
+});
+
+test("withTimeout falls back when a handle call never settles and passes real results through", async () => {
+    const { withTimeout } = folderModule.exports;
+    assert.equal(await withTimeout(new Promise(() => {}), 10, "prompt"), "prompt");
+    assert.equal(await withTimeout(Promise.resolve("granted"), 1000, "prompt"), "granted");
+    await assert.rejects(withTimeout(Promise.reject(new Error("boom")), 1000, "prompt"), /boom/);
+});
+
 test("duplicate references to one physical folder merge without losing tags", async () => {
     const { mergeSameDirectoryFolders, mergeFolderReferences, folderPathLabel } = folderModule.exports;
     const folders = [
@@ -169,7 +183,7 @@ test("saved duplicate folders and file handles are repaired together", async () 
         put(value, key) { records.set(key, value); },
         delete(key) { removed.push(key); }
     });
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         folderHandles: folders, defaultFolder: folders[1], entries: [
             { id: "a", path: "Videos e memes/clip.mp4", tags: ["a"], added: 1 },
             { id: "b", path: "Videos e memes (2)/clip.mp4", tags: ["b"], added: 2 }
@@ -193,7 +207,7 @@ test("folder dropdown shows the real name while filtering by the saved key", () 
     const options = [];
     const select = { replaceChildren() { options.length = 0; }, append(option) { options.push(option); } };
     const remove = {};
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         entries: [{ path: "discord (2)/image.png" }],
         folderHandles: [{ name: "discord (2)", handle: { root: "D:\\media\\discord" } }],
         defaultFolder: undefined, folderFilter: "discord (2)", importing: false, removing: false,
@@ -213,9 +227,9 @@ function importer(failAt = Infinity) {
     let writes = 0;
     let updates = 0;
     let renders = 0;
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Error,
-        entries: [], KEY: "index", FILE: id => `file:${id}`,
+        NAME: "Reaction Library", console: { warn() {} }, entries: [], KEY: "index", FILE: id => `file:${id}`,
         mediaKind: mediaSource.mediaKind,
         importProgress: { total: 1200, processed: 0, imported: 0, skipped: 0, failed: 0 },
         crypto: require("node:crypto").webcrypto,
@@ -226,13 +240,29 @@ function importer(failAt = Infinity) {
             pairs.forEach(([key, value]) => records.set(key, value));
         } } })
     });
-    vm.runInContext(section("    async function importFolder(", "    function updateProgress(") + "globalThis.run = importFolder;", context);
+    vm.runInContext(section("    async function writeIndex(", "    function updateProgress(") + "globalThis.run = importFolder;", context);
     return { context, records, stats: () => ({ writes, updates, renders }) };
 }
 
 const files = () => Array.from({ length: 1200 }, (_, i) => ({
     name: `${i}.mp4`, path: `Large folder/${i}.mp4`, type: "", handle: { kind: "file", name: `${i}.mp4` }
 }));
+
+test("a failed handle write falls back to saving the index alone", async () => {
+    const saved = new Map(), deleted = [];
+    const context = vm.createContext({
+        NAME: "Reaction Library", KEY: "index", console: { warn() {} },
+        dataStore: () => ({ store: null, api: {
+            async setMany() { throw new Error("Failed to write blobs"); },
+            async set(key, value) { saved.set(key, value); },
+            async delMany(keys) { deleted.push(...keys); }
+        } })
+    });
+    vm.runInContext(section("    async function writeIndex(", "    async function importFolder(") + "globalThis.run = writeIndex;", context);
+    assert.equal(await context.run([["file:a", {}]], [{ id: "a" }]), false);
+    assert.deepEqual(saved.get("index"), [{ id: "a" }]);
+    assert.deepEqual(deleted, ["file:a"]);
+});
 
 test("1,200 file references commit progressively without reading or copying media", async () => {
     const harness = importer();
@@ -241,7 +271,7 @@ test("1,200 file references commit progressively without reading or copying medi
     assert.equal(harness.context.entries.length, 1200);
     assert.equal(harness.context.entries[0].id, "tagged");
     assert.deepEqual(harness.context.entries[0].tags, ["favorite"]);
-    assert.equal(harness.records.get("file:tagged").kind, "file");
+    assert.equal(harness.records.has("file:tagged"), false, "browser file handles are not stored; files are found through the folder handle");
     assert.equal(harness.context.entries[0].reference, true);
     assert.equal(harness.context.importProgress.imported, 1200);
     assert.equal(harness.stats().writes, 60);
@@ -267,7 +297,7 @@ test("previews read only intersecting items, limit concurrent reads, and release
         return { tagName: tag.toUpperCase(), addEventListener() {}, removeAttribute() {}, load() { this.released = true; }, remove() {} };
     }
     const cards = Array.from({ length: 1200 }, () => ({ button: { prepend(media) { this.media = media; } }, entry: { kind: "video" }, symbol: { hidden: false } }));
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         renderId: 1, previewCleanup: [], accessWarning: false,
         element: node, status() {},
         URL: { createObjectURL: () => `blob:${Math.random()}`, revokeObjectURL: url => revoked.push(url) },
@@ -296,7 +326,7 @@ test("library removal deletes index records and handles without touching origina
     const records = new Map();
     const originalHandle = { remove() { throw new Error("Original must never be deleted"); } };
     const item = { id: "one", path: "Folder/a.mp4", reference: true, name: "a.mp4", handle: originalHandle };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         importing: false, removing: false, entries: [item], folderHandles: [{ name: "Folder", handle: originalHandle }],
         KEY: "index", FILE: id => `file:${id}`, confirm: () => true, locale: () => "en-US", updateProgress() {}, render() {}, status() {},
         dataStore: () => ({ api: { promisifyRequest: async () => {} }, store: async (_mode, callback) => callback({
@@ -352,7 +382,7 @@ test("legacy cleanup removes only copied media, including orphans, preserving ha
             return request;
         }
     };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, KEY: "index",
         dataStore: () => ({
             api: { promisifyRequest: () => new Promise(resolve => setImmediate(resolve)) },
@@ -383,7 +413,7 @@ test("voice preparation encodes mono Opus into Ogg with duration and waveform me
     let renderedFrames;
     let extractions = 0;
     const samples = new Float32Array(1920).fill(0.25);
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, TextEncoder, TextDecoder, crypto: require("node:crypto").webcrypto,
         btoa: value => Buffer.from(value, "binary").toString("base64"),
         AudioContext: class {
@@ -464,7 +494,7 @@ test("video audio extraction starts playback before recording its captured track
         captureStream() { assert.equal(playing, true); return { getAudioTracks: () => [track], getTracks: () => [track] }; },
         addEventListener() {}, removeEventListener() {}
     };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, Error, setTimeout, clearTimeout, status() {},
         conversionVideo: async () => ({ video, dispose() { disposed = true; } }),
         MediaStream: class { constructor(tracks) { this.tracks = tracks; } },
@@ -496,7 +526,7 @@ test("file clips rewind warmed media and start recording before final playback",
         captureStream() { assert.equal(playing, true); return { getTracks: () => [track] }; },
         addEventListener() {}, removeEventListener() {}
     };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, Error, setTimeout, clearTimeout,
         document: { body: { append() {} }, createElement: () => media }, status() {},
         URL: { createObjectURL: () => "blob:clip", revokeObjectURL() {} },
@@ -567,7 +597,7 @@ test("audio and video preview playback waits for a trim seek and replays with on
     const preview = { replaceChildren() {}, append(...nodes) { this.nodes = nodes; } };
     const made = [];
     const revoked = [];
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         playbackId: 0, playback: undefined, queueMicrotask, setTimeout, clearTimeout,
         requestAnimationFrame: callback => { context.nextFrame = callback; return 1; },
         cancelAnimationFrame: () => { context.nextFrame = undefined; },
@@ -634,7 +664,7 @@ test("video GIF conversion produces a decodable animation with timing and releas
         getImageData: () => ({ data: new Uint8ClampedArray(Array.from({ length: 4 }, () => video.currentTime ? [0, 0, 255, 255] : [255, 0, 0, 255]).flat()) })
     }) };
     const progress = [];
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, GIFEncoder, quantize, applyPalette, setTimeout,
         conversionVideo: async () => ({ video, dispose: () => disposed++ }),
         waitForMedia: async (_video, _event, signal, action) => { signal?.throwIfAborted(); action(); },
@@ -674,7 +704,7 @@ test("video send options upload the selected conversion while main-card send kee
         MessageActions: { getSendMessageOptionsForReply: () => ({}) }
     };
     const original = new Blob(["video"], { type: "video/mp4" });
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, File, Error, AbortController, clearInterval,
         busy: false, conversion: undefined, root: undefined, status: message => statuses.push(message), close() {}, syncSendState() {}, finishSend() {},
         vencord: () => ({ Webpack: { Common: common }, Util: { async sendMessage(_id, _data, _wait, options) { sent.push(options.attachmentsToUpload[0].item.file); } } }),
@@ -724,7 +754,7 @@ test("closing the library leaves conversion running, reopening shows progress, a
         PendingReplyStore: { getPendingReply: () => null }, FluxDispatcher: { dispatch() {} },
         MessageActions: { getSendMessageOptionsForReply: () => ({}) }, showToast() {}
     };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, File, Error, AbortController, clearInterval,
         busy: false, conversion: undefined, root: initial, playback: undefined, discoveryTimer: undefined, lastStatus: "", renderId: 0, editing: null,
         NAME: "Reaction Library", BUTTON_CLASS: "library-button",
@@ -780,7 +810,7 @@ test("closing and reopening preserves an in-progress clip and unsaved edits", as
     const panel = { hidden: false, clip, tagInput, remove() { throw new Error("The panel must stay mounted"); } };
     const media = { paused: false, pause() { this.paused = true; } };
     const button = {};
-    const context = vm.createContext({ root: panel, playback: { media }, discoveryTimer: undefined, anchor: button, position() {}, async discoverOnOpen() {}, clearInterval });
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout, root: panel, playback: { media }, discoveryTimer: undefined, anchor: button, position() {}, async discoverOnOpen() {}, clearInterval });
     vm.runInContext(
         section("    function close()", "    function syncSendState(") +
         section("    async function open(", "    function mount(") +
@@ -809,7 +839,7 @@ test("after restart, expired folder permissions are detected and saved reference
         requestPermission() { requests++; permission = "granted"; return Promise.resolve(permission); }
     };
     const fileHandle = { kind: "file", async queryPermission() { return permission; }, async getFile() { reads++; return original; } };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, Error, root: undefined, folderFilter: "", folderAccess: new Map(),
         entries: [entry], folderHandles: [{ name: "Reactions", handle: directory }],
         FILE: id => `file:${id}`, accessWarning: true, importing: false, removing: false, lastDiscovery: new Map(), Date,
@@ -817,7 +847,7 @@ test("after restart, expired folder permissions are detected and saved reference
         referencedFolderFiles: async () => [], importFolder: async () => {},
         dataStore: () => ({ api: { get: async key => { assert.equal(key, "file:saved"); return fileHandle; }, set() { throw new Error("Restoring access must not write media or metadata"); } }, store: null })
     });
-    vm.runInContext(section("    async function readMedia(", "    async function removeEntries(") + "globalThis.check = refreshFolderAccess; globalThis.read = readMedia; globalThis.restore = reconnect;", context);
+    vm.runInContext(section("    async function resolveFileHandle(", "    async function removeEntries(") + "globalThis.check = refreshFolderAccess; globalThis.read = readMedia; globalThis.restore = reconnect;", context);
     await context.check();
     assert.equal(context.folderAccess.get("Reactions"), "prompt");
     assert.equal(requests, 0);
@@ -851,7 +881,7 @@ test("reconnect scans new browser media and preserves existing tags", async () =
             yield { kind: "file", name: "new.mp4" };
         }
     };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         folderFilter: "Reactions", folderHandles: [{ name: "Reactions", handle: directory }],
         folderAccess: new Map(), entries: [old], importing: false, removing: false, lastDiscovery: new Map(), Date,
         accessWarning: true, crypto: { randomUUID: () => "new" }, Date, Map, Promise,
@@ -861,7 +891,7 @@ test("reconnect scans new browser media and preserves existing tags", async () =
     });
     vm.runInContext(
         section("    function nativeFolderFiles(", "    function updateSaveFolderLabel(") +
-        section("    async function importFolder(", "    function updateProgress(") +
+        section("    async function writeIndex(", "    function updateProgress(") +
         section("    async function reconnect(", "    async function removeEntries(") +
         "globalThis.run = reconnect;", context
     );
@@ -870,7 +900,8 @@ test("reconnect scans new browser media and preserves existing tags", async () =
     assert.equal(context.entries.length, 2);
     assert.equal(context.entries.find(entry => entry.id === "old").tags[0], "favorite");
     assert.equal(context.entries.find(entry => entry.id === "new").path, "Reactions/new.mp4");
-    assert.equal(stored.get("file:new").name, "new.mp4");
+    assert.equal(stored.has("file:new"), false);
+    assert.equal(stored.get("index").find(entry => entry.id === "new").name, "new.mp4");
     assert.equal(context.importing, false);
 });
 
@@ -878,7 +909,7 @@ test("reconnect rescans a native folder without opening the picker", async () =>
     let scanned = 0;
     let imported;
     const rootPath = "D:\\reactions";
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         folderFilter: "Reactions", folderHandles: [{ name: "Reactions", handle: { kind: "native-directory", root: rootPath } }],
         folderAccess: new Map(), importing: false, removing: false, accessWarning: true, lastDiscovery: new Map(), Date,
         updateProgress() {}, renderFolderAccess() {}, render() {}, status() {},
@@ -902,7 +933,7 @@ test("opening scans browser folders only when stale and native watchers report c
     const scanned = [];
     let now = 1000;
     const lastDiscovery = new Map();
-    const browser = vm.createContext({
+    const browser = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         discovering: false, importing: false, removing: false, savingContext: 0, root: { hidden: false },
         folderHandles: [{ name: "browser", handle: { kind: "directory" } }],
         vencord: () => ({}), lastDiscovery, pendingChanges: new Set(), DISCOVERY_INTERVAL: 300000,
@@ -924,7 +955,7 @@ test("opening scans browser folders only when stale and native watchers report c
         async watchFolder(root) { watched.push(root); return true; },
         async takeFolderChanges() { return ++changeReads === 1 ? [] : ["D:\\second"]; }
     };
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         discovering: false, importing: false, removing: false, savingContext: 0, root: { hidden: false },
         folderHandles: folders, discoveryTimer: undefined, lastDiscovery: new Map(), pendingChanges: new Set(), DISCOVERY_INTERVAL: 300000, Date,
         vencord: () => ({ Native: native }), discoverFolder: async folder => { scanned.push(folder.name); context.lastDiscovery.set(folder.name, Date.now()); context.pendingChanges.delete(folder.handle.root); return true; },
@@ -943,17 +974,17 @@ test("opening scans browser folders only when stale and native watchers report c
 test("automatic discovery writes only new references", async () => {
     const existing = { id: "saved", name: "old.png", path: "Photos/old.png", kind: "image", tags: ["keep"], added: 1, reference: true };
     const writes = [];
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         entries: [existing], importProgress: { total: 2, processed: 0, imported: 0, skipped: 0, failed: 0 },
         mediaKind: mediaSource.mediaKind, crypto: { randomUUID: () => "fresh" }, Date, Map, Promise,
         FILE: id => `file:${id}`, KEY: "index", render() {}, updateProgress() {},
         dataStore: () => ({ store: null, api: { async setMany(pairs) { writes.push(pairs); } } }),
         setTimeout
     });
-    vm.runInContext(section("    async function importFolder(", "    function updateProgress(") + "globalThis.run = importFolder;", context);
+    vm.runInContext(section("    async function writeIndex(", "    function updateProgress(") + "globalThis.run = importFolder;", context);
     await context.run([
         { name: "old.png", path: "Photos/old.png", handle: { stale: false } },
-        { name: "new.png", path: "Photos/new.png", handle: { fresh: true } }
+        { name: "new.png", path: "Photos/new.png", handle: { kind: "native-file", fresh: true } }
     ], true);
     assert.equal(writes.length, 1);
     assert.equal(writes[0].length, 2);
@@ -962,12 +993,36 @@ test("automatic discovery writes only new references", async () => {
     assert.equal(context.entries[0].tags[0], "keep");
 });
 
+test("browser folders are read through the folder handle, ignoring dead stored per-file handles", async () => {
+    const file = new File(["bytes"], "clip.mp4", { type: "video/mp4" });
+    const fileHandle = { kind: "file", async getFile() { return file; } };
+    let stale = 0;
+    const sub = { async getFileHandle(name) {
+        if (name === "gone.mp4") { const error = new Error("missing"); error.name = "NotFoundError"; throw error; }
+        assert.equal(name, "clip.mp4"); return fileHandle;
+    } };
+    const directory = { kind: "directory", async queryPermission() { return "granted"; }, async getDirectoryHandle(name) { assert.equal(name, "funny"); return sub; } };
+    const folderAccess = new Map([["Reactions", "granted"]]);
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
+        Blob, Error, root: undefined, folderAccess, folderHandles: [{ name: "Reactions", handle: directory }],
+        FILE: id => `file:${id}`, renderFolderAccess() {},
+        // a stored per-file handle that never answers must not be touched
+        dataStore: () => ({ store: null, api: { get: async () => { stale++; return { kind: "file", queryPermission: () => new Promise(() => {}), getFile: () => new Promise(() => {}) }; } } })
+    });
+    vm.runInContext(section("    async function resolveFileHandle(", "    async function refreshFolderAccess(") + "globalThis.read = readMedia;", context);
+    assert.equal(await context.read({ id: "x", path: "Reactions/funny/clip.mp4", reference: true }), file);
+    assert.equal(stale, 0);
+    // one missing file reports an error but never flips the folder back to "needs access"
+    await assert.rejects(context.read({ id: "y", path: "Reactions/funny/gone.mp4", reference: true }), error => error.name !== "NotAllowedError" && /could not be read/.test(error.message));
+    assert.equal(folderAccess.get("Reactions"), "granted");
+});
+
 test("denied folder access leaves references intact and shows a restore button", async () => {
     const entry = { id: "saved", path: "Reactions/reaction.mp4", reference: true, tags: ["favorite"] };
     const area = { nodes: [], replaceChildren() { this.nodes = []; }, append(node) { this.nodes.push(node); } };
     const made = [];
     let requests = 0;
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         Blob, Error, root: { querySelector: () => area }, folderFilter: "", folderAccess: new Map(), importing: false, removing: false, importProgress: null,
         entries: [entry], folderHandles: [{ name: "Reactions", handle: { async queryPermission() { return "denied"; }, requestPermission() { requests++; return Promise.resolve("denied"); } } }],
         status() {}, t: message => message, position() {}, updateProgress() {}, render() { throw new Error("Must not reload previews after access was denied"); },
@@ -989,7 +1044,7 @@ test("denied folder access leaves references intact and shows a restore button",
 test("opening the library attempts restoration during its user gesture and stops after refusal", async () => {
     const asked = [];
     const permission = new Map([["remembered", "granted"], ["first", "prompt"], ["second", "prompt"], ["last", "prompt"]]);
-    const context = vm.createContext({
+    const context = vm.createContext({ withTimeout: folderModule.exports.withTimeout, setTimeout, clearTimeout,
         root: {}, navigator: { userActivation: { isActive: true } }, folderAccess: permission, renderFolderAccess() {},
         folderHandles: ["remembered", "first", "second", "last"].map(name => ({ name, handle: { async requestPermission() { asked.push(name); return name === "second" ? "denied" : "granted"; } } }))
     });
